@@ -1,6 +1,6 @@
-// Service worker simples: garante que o app abra rápido (e no modo instalado)
-// mesmo com internet fraca. Não guarda dados sensíveis do Drive.
-const CACHE_NAME = "trilha-desbravador-v1";
+// Service worker: sempre busca a versão mais nova da página primeiro (network-first).
+// Só usa o cache se estiver sem internet — assim o app nunca fica "preso" numa versão antiga.
+const CACHE_NAME = "trilha-desbravador-v2";
 const CORE_ASSETS = ["./index.html", "./manifest.json", "./icon.png"];
 
 self.addEventListener("install", function(event){
@@ -21,6 +21,22 @@ self.addEventListener("activate", function(event){
 
 self.addEventListener("fetch", function(event){
   if(event.request.method !== "GET") return;
+  const isPage = event.request.mode === "navigate" || event.request.url.endsWith("index.html") || event.request.url.endsWith("/");
+
+  if(isPage){
+    // network-first: tenta buscar a versão nova; só cai pro cache se estiver offline
+    event.respondWith(
+      fetch(event.request).then(function(networkResp){
+        if(networkResp && networkResp.ok){
+          caches.open(CACHE_NAME).then(function(cache){ cache.put(event.request, networkResp.clone()); });
+        }
+        return networkResp;
+      }).catch(function(){ return caches.match(event.request); })
+    );
+    return;
+  }
+
+  // demais arquivos (ícone, manifest): cache-first, com atualização em segundo plano
   event.respondWith(
     caches.match(event.request).then(function(cached){
       const fetchPromise = fetch(event.request).then(function(networkResp){
