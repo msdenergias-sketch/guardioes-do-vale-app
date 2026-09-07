@@ -778,18 +778,21 @@ button{font-family:inherit}
           ? '<img class="thumb" src="'+file.dataUrl+'" alt="anexo" data-view="'+it.id+'" title="Ver anexo">'
           : '<button class="thumb file-thumb" type="button" data-view="'+it.id+'" title="Ver arquivo">📄</button>')
       : '';
-    const locked = status === "aprovado" || status === "pendente";
+    const locked = !currentStaff && (status === "aprovado" || status === "pendente");
+    const canRemove = !!file && (!locked || currentStaff);
     const noteHtml = note ? '<div class="note-text"><b>Resposta de '+esc(currentMember||"")+'</b>'+esc(note)+'</div>' : '';
+    const reopenHtml = (currentStaff && status !== "none") ? '<button class="attach-btn" type="button" data-reopen="'+it.id+'" title="Reabrir requisito (volta para não iniciado)">↺</button>' : '';
     return '<div class="row" data-id="'+it.id+'">'
       + '<div class="idx">'+esc(idxLabel)+'</div>'
       + '<div class="body">'
         + '<div class="title">'+esc(it.title)+'</div>'
-        + '<div class="meta">'+ (it.wiki ? '<a href="'+it.wiki+'" target="_blank" rel="noopener">Ver na MDA Wiki ↗</a>' : '') + (it.driveUrl && currentStaff ? (it.wiki ? ' · ' : '') + '<a href="'+it.driveUrl+'" target="_blank" rel="noopener">📁 Abrir pasta (Drive) ↗</a>' : '') + (file ? ' · <span class="filechip"><span>'+esc(file.name)+'</span>'+(locked?'':'<button data-remove="'+it.id+'" title="Remover anexo">✕</button>')+'</span>' : '') + '</div>'
+        + '<div class="meta">'+ (it.wiki ? '<a href="'+it.wiki+'" target="_blank" rel="noopener">Ver na MDA Wiki ↗</a>' : '') + (it.driveUrl && currentStaff ? (it.wiki ? ' · ' : '') + '<a href="'+it.driveUrl+'" target="_blank" rel="noopener">📁 Abrir pasta (Drive) ↗</a>' : '') + (file ? ' · <span class="filechip"><span>'+esc(file.name)+'</span>'+(canRemove?'<button data-remove="'+it.id+'" title="Remover anexo">✕</button>':'')+'</span>' : '') + '</div>'
         + noteHtml
       + '</div>'
       + '<div class="actions">'
         + '<div class="attach" data-attach="'+it.id+'">'
           + thumbHtml
+          + reopenHtml
           + (locked ? '' :
             '<button class="attach-btn' + (note?' has-file':'') + ' note-btn" type="button" data-note="'+it.id+'" title="Responder por texto">📝</button>'
             + '<button class="attach-btn" type="button" title="Anexar da galeria/arquivos">📎</button>'
@@ -876,6 +879,17 @@ button{font-family:inherit}
         if(!requireMember()) return;
         const id = btn.getAttribute("data-remove");
         setState(id, {file:null});
+        render();
+      });
+    });
+    listEl.querySelectorAll("[data-reopen]").forEach(function(btn){
+      btn.addEventListener("click", function(ev){
+        ev.stopPropagation();
+        if(!currentStaff) return;
+        if(!requireMember()) return;
+        const id = btn.getAttribute("data-reopen");
+        if(!confirm("Reabrir este requisito? Ele volta para \"Não iniciado\" e o Desbravador poderá reenviar (o anexo atual é mantido até ser removido ou substituído).")) return;
+        setState(id, {status:"none"});
         render();
       });
     });
