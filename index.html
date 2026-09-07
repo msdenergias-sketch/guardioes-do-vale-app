@@ -784,7 +784,7 @@ button{font-family:inherit}
       + '<div class="idx">'+esc(idxLabel)+'</div>'
       + '<div class="body">'
         + '<div class="title">'+esc(it.title)+'</div>'
-        + '<div class="meta">'+ (it.wiki ? '<a href="'+it.wiki+'" target="_blank" rel="noopener">Ver na MDA Wiki ↗</a>' : '') + (it.driveUrl && currentStaff ? (it.wiki ? ' · ' : '') + '<button class="linklike" type="button" data-openfolder="'+esc(driveFolderId(it.driveUrl))+'" data-foldertitle="'+esc(it.title)+'">📁 Ver arquivos da pasta</button>' : '') + (file ? ' · <span class="filechip"><span>'+esc(file.name)+'</span>'+(locked?'':'<button data-remove="'+it.id+'" title="Remover anexo">✕</button>')+'</span>' : '') + '</div>'
+        + '<div class="meta">'+ (it.wiki ? '<a href="'+it.wiki+'" target="_blank" rel="noopener">Ver na MDA Wiki ↗</a>' : '') + (it.driveUrl && currentStaff ? (it.wiki ? ' · ' : '') + '<a href="'+it.driveUrl+'" target="_blank" rel="noopener">📁 Abrir pasta (Drive) ↗</a>' : '') + (file ? ' · <span class="filechip"><span>'+esc(file.name)+'</span>'+(locked?'':'<button data-remove="'+it.id+'" title="Remover anexo">✕</button>')+'</span>' : '') + '</div>'
         + noteHtml
       + '</div>'
       + '<div class="actions">'
