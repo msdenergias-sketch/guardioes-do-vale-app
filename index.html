@@ -1199,7 +1199,7 @@ button{font-family:inherit}
   }
 
   function staffItemHtml(a){
-    return '<div class="staff-item"><span>'+esc(a.name||a.username)+' <span class="uname">('+esc(a.username)+')</span></span><span class="role-chip">'+esc(ROLE_LABELS[a.role]||a.role)+'</span></div>';
+    return '<div class="staff-item"><span>'+esc(a.name||a.username)+' <span class="uname">('+esc(a.username)+(a.googleEmail?' · '+a.googleEmail:'')+')</span></span><span class="role-chip">'+esc(ROLE_LABELS[a.role]||a.role)+'</span></div>';
   }
 
   function openStaffPanel(){
@@ -1230,9 +1230,10 @@ button{font-family:inherit}
       html += '<h4>Equipe da diretoria</h4>';
       html += staffAccounts.map(staffItemHtml).join("");
       html += '<div class="field" style="margin-top:12px"><label>Nome</label><input type="text" id="newStaffName" placeholder="Nome completo"></div>';
-      html += '<div class="field"><label>Usuário</label><input type="text" id="newStaffUser" placeholder="usuário de acesso"></div>';
+      html += '<div class="field"><label>Usuário (login no app)</label><input type="text" id="newStaffUser" placeholder="usuário de acesso"></div>';
       html += '<div class="field"><label>Senha</label><input type="text" id="newStaffPass" placeholder="senha"></div>';
       html += '<div class="field"><label>Função</label><select id="newStaffRole">' + Object.keys(ROLE_LABELS).map(function(r){ return '<option value="'+r+'">'+esc(ROLE_LABELS[r])+'</option>'; }).join("") + '</select></div>';
+      html += '<div class="field"><label>E-mail do Google (para liberar acesso às pastas do Drive)</label><input type="email" id="newStaffGoogleEmail" placeholder="nome@gmail.com"></div>';
       html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="addStaffBtn">Adicionar à diretoria</button></div>';
 
       html += '<h4>Contas de responsáveis (pais/mães)</h4>';
@@ -1307,12 +1308,13 @@ button{font-family:inherit}
         const username = document.getElementById("newStaffUser").value.trim();
         const password = document.getElementById("newStaffPass").value;
         const role = document.getElementById("newStaffRole").value;
+        const googleEmail = document.getElementById("newStaffGoogleEmail").value.trim();
         if(!username || !password){ alert("Preencha usuário e senha."); return; }
         if(staffAccounts.some(function(a){ return a.username.toLowerCase() === username.toLowerCase(); })){
           alert("Já existe um usuário com esse nome.");
           return;
         }
-        staffAccounts.push({name:name||username, username:username, password:password, role:role});
+        staffAccounts.push({name:name||username, username:username, password:password, role:role, googleEmail:googleEmail||null});
         persistStaff();
         openStaffPanel();
       });
