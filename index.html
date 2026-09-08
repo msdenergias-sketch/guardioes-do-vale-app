@@ -242,6 +242,9 @@ button{font-family:inherit}
 .note-text{background:var(--forest-tint);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--ink);margin-top:4px;white-space:pre-wrap;word-break:break-word}
 .note-text b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--forest);margin-bottom:2px}
 .modal textarea{width:100%;min-height:110px;padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:13px;font-family:inherit;resize:vertical}
+.idea-list{list-style:none;padding:0;margin:10px 0;display:flex;flex-direction:column;gap:8px}
+.idea-list li{background:var(--forest-tint);border-radius:8px;padding:9px 12px;font-size:13px;line-height:1.4;color:var(--ink)}
+.idea-hint{font-size:11px;color:var(--muted, #8a9080);margin-top:6px;font-style:italic}
 .thumb{width:32px;height:32px;border-radius:8px;object-fit:cover;border:1px solid var(--line);cursor:pointer}
 .thumb.file-thumb{background:var(--rope-tint);border:1px solid var(--rope);color:var(--rope);font-size:16px;display:flex;align-items:center;justify-content:center;padding:0}
 .filechip{display:flex;align-items:center;gap:5px;background:var(--rope-tint);color:var(--rope);border-radius:100px;padding:4px 10px 4px 4px;font-size:11px;max-width:150px}
@@ -782,6 +785,7 @@ button{font-family:inherit}
     const canRemove = !!file && (!locked || currentStaff);
     const noteHtml = note ? '<div class="note-text"><b>Resposta de '+esc(currentMember||"")+'</b>'+esc(note)+'</div>' : '';
     const reopenHtml = (currentStaff && status !== "none") ? '<button class="attach-btn" type="button" data-reopen="'+it.id+'" title="Reabrir requisito (volta para não iniciado)">↺</button>' : '';
+    const ideaHtml = currentStaff ? '<button class="attach-btn" type="button" data-idea="'+it.id+'" title="Ideias de atividade para este requisito">💡</button>' : '';
     return '<div class="row" data-id="'+it.id+'">'
       + '<div class="idx">'+esc(idxLabel)+'</div>'
       + '<div class="body">'
@@ -793,6 +797,7 @@ button{font-family:inherit}
         + '<div class="attach" data-attach="'+it.id+'">'
           + thumbHtml
           + reopenHtml
+          + ideaHtml
           + (locked ? '' :
             '<button class="attach-btn' + (note?' has-file':'') + ' note-btn" type="button" data-note="'+it.id+'" title="Responder por texto">📝</button>'
             + '<button class="attach-btn" type="button" title="Anexar da galeria/arquivos">📎</button>'
@@ -880,6 +885,12 @@ button{font-family:inherit}
         const id = btn.getAttribute("data-remove");
         setState(id, {file:null});
         render();
+      });
+    });
+    listEl.querySelectorAll("[data-idea]").forEach(function(btn){
+      btn.addEventListener("click", function(ev){
+        ev.stopPropagation();
+        openIdeasModal(btn.getAttribute("data-idea"));
       });
     });
     listEl.querySelectorAll("[data-reopen]").forEach(function(btn){
@@ -1000,6 +1011,141 @@ button{font-family:inherit}
     });
     modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
     document.getElementById("mCancel").addEventListener("click", closeModal);
+  }
+
+  // ---- banco de ideias criativas para instrutores ----
+  const IDEA_BANK = {
+    natureza: {test:/natureza|planta|animal|árvore|arvore|flor|inset|ave|p[áa]ssaro|folha|semente|ecolog|ambient|solo|rocha|mineral/i, ideias:[
+      "Caça ao tesouro da natureza: monte uma lista de 10 elementos (folha, pedra, semente, pena etc.) e dê 15 minutos para os desbravadores encontrarem no pátio ou numa trilha próxima.",
+      "Diário de campo relâmpago: cada um desenha e anota 3 observações reais do que encontrou lá fora, depois compartilha com o grupo.",
+      "Jogo da memória com fotos: imprima ou mostre imagens do tema e faça uma rodada de 'quem identifica mais rápido'.",
+      "Trilha sensorial de olhos vendados: em duplas, um guia o outro até uma árvore/planta e ele tenta identificá-la só pelo tato depois."
+    ]},
+    saude: {test:/primeiro[s]? socorro|sa[úu]de|enferm|higiene|doen[çc]a|corpo human|nutri[çc][ãa]o|reanima[çc][ãa]o|medic/i, ideias:[
+      "Simulação de emergência: monte uma cena fictícia (torção de tornozelo, corte leve) e peça para aplicarem o procedimento correto na prática.",
+      "Bingo da saúde: crie cartelas com termos do requisito e vá sorteando definições para eles marcarem.",
+      "Desafio em dupla cronometrado: um desbravador finge o ferimento, o outro tem 2 minutos para atender corretamente — depois trocam.",
+      "Roda de perguntas relâmpago com prêmio simbólico para quem acumular mais acertos sobre o tema."
+    ]},
+    lideranca: {test:/lideran[çc]a|conselheiro|organiza[çc][ãa]o|planejamento|equipe|gest[ãa]o|administra[çc][ãa]o/i, ideias:[
+      "Dinâmica da torre: divida em equipes pequenas e peça para construírem a torre mais alta com poucos materiais (papel, fita) em 10 minutos, depois debata sobre liderança e trabalho em equipe.",
+      "Estudo de caso real: apresente uma situação de conflito no clube e peça que decidam juntos como um líder resolveria.",
+      "Rodízio de comando: em cada atividade da reunião, um desbravador diferente assume o papel de 'líder da vez'.",
+      "Roda de reflexão guiada com perguntas sobre um líder bíblico ou histórico que se encaixe no requisito."
+    ]},
+    acampamento: {test:/acampa|pioneir|barraca|n[óo]s e amarra|fogueira|mochila|trilha|excursion/i, ideias:[
+      "Oficina prática de nós: monte 4 estações com cordas e deixe os desbravadores rodarem em grupos pequenos treinando cada nó.",
+      "Corrida de amarras: em duplas, cronometrar quem monta corretamente uma amarração específica mais rápido.",
+      "Simulação de montagem de acampamento em miniatura, usando gravetos e barbante como barraca reduzida.",
+      "Roda de fogueira (sem fogo real, se for em sala): contar a história por trás do requisito enquanto praticam o nó ou técnica."
+    ]},
+    artes: {test:/arte|manual|artesan|pintura|desenho|costura|cer[âa]mica|madeira|tran[çc]ar|crochê|croch[êe]/i, ideias:[
+      "Oficina mão na massa: leve os materiais básicos e deixe metade da reunião livre para praticar a técnica do requisito.",
+      "Exposição relâmpago: ao final, cada um mostra o que produziu e conta em 30 segundos o que aprendeu.",
+      "Dupla criativa: um desbravador ensina o que já sabe da técnica para outro que está começando.",
+      "Desafio com tempo: quem consegue produzir algo simples e reconhecível em 10 minutos?"
+    ]},
+    espiritual: {test:/b[íi]blia|espiritual|devocional|deus|jesus|f[ée]|ora[çc][ãa]o|igreja|evangel|s[áa]bado|profec/i, ideias:[
+      "Leitura dramatizada: divida os personagens da passagem bíblica do requisito e encenem em vez de só ler.",
+      "Roda de testemunhos: peça que cada um compartilhe uma experiência pessoal relacionada ao tema.",
+      "Versículo quebra-cabeça: escreva o texto-chave em tiras de papel embaralhadas para eles remontarem em grupo.",
+      "Momento de oração guiada relacionando o requisito com uma necessidade real do clube ou da comunidade."
+    ]},
+    esportes: {test:/esporte|f[úu]tebol|v[óo]lei|basquete|atletismo|nata[çc][ãa]o|corrida|ginástica|gin[áa]stica/i, ideias:[
+      "Circuito de estações: monte 3-4 desafios físicos ligados à especialidade e cronometre cada equipe passando por todos.",
+      "Torneio relâmpago entre patrulhas com regras simplificadas do esporte do requisito.",
+      "Aquecimento gamificado: transforme o alongamento em um jogo de 'siga o líder' antes da prática principal.",
+      "Desafio de superação pessoal: cada um define uma meta pequena (ex: 5 flexões a mais) e tenta bater no fim da reunião."
+    ]},
+    culinaria: {test:/culin[áa]ria|cozinha|aliment|receita|panifica[çc][ãa]o|comida/i, ideias:[
+      "Oficina prática simples: escolha uma receita rápida e segura para prepararem juntos em pequenos grupos.",
+      "Degustação às cegas: identifique ingredientes ou pratos relacionados ao tema.",
+      "Desafio do chef: cada patrulha monta um prato simples com os mesmos ingredientes e apresenta para os outros.",
+      "Roda de curiosidades: pesquise 3 fatos interessantes sobre a origem do prato/técnica e compartilhe antes de colocar a mão na massa."
+    ]},
+    comunicacao: {test:/comunica[çc][ãa]o|jornalismo|m[íi]dia|reda[çc][ãa]o|oratória|orat[óo]ria|fotografia|v[íi]deo/i, ideias:[
+      "Repórter por um dia: cada desbravador grava ou apresenta uma 'notícia' de 1 minuto sobre um tema combinado.",
+      "Desafio da oratória relâmpago: sorteie um tema simples e dê 1 minuto de preparo antes de falar 30 segundos sobre ele.",
+      "Produção em dupla: um entrevista o outro sobre uma experiência no clube e depois trocam.",
+      "Mural de notícias do clube: produzam juntos um pequeno informativo para os pais."
+    ]},
+    tecnologia: {test:/tecnologia|computa[çc][ãa]o|inform[áa]tica|internet|software|programa[çc][ãa]o|c[óo]digo|c[óo]digo morse|radio|r[áa]dio/i, ideias:[
+      "Desafio prático guiado: se possível, use um celular/tablet do clube para simular a tarefa do requisito passo a passo.",
+      "Jogo de código secreto: usem o código Morse ou semafórico do requisito para trocar mensagens simples em duplas.",
+      "Quiz relâmpago sobre segurança digital ou uso responsável da tecnologia, conforme o requisito.",
+      "Apresentação simples: peça que expliquem com as próprias palavras como a tecnologia do requisito funciona, usando desenhos."
+    ]},
+    musica: {test:/m[úu]sica|instrumento|viol[ãa]o|canto|hino|fanfarra/i, ideias:[
+      "Roda de música: aprenda e cante juntos um hino ou música relacionada ao tema do requisito.",
+      "Desafio rítmico: usando palmas ou objetos simples, criem um ritmo em grupo.",
+      "Apresente uma curiosidade sobre a origem do instrumento/estilo musical do requisito.",
+      "Karaokê educativo com uma música que reforce a lição espiritual ou o tema da especialidade."
+    ]},
+    seguranca: {test:/seguran[çc]a|preven[çc][ãa]o|inc[êe]ndio|resgate|emerg[êe]ncia|desastre/i, ideias:[
+      "Simulado prático: monte um cenário de emergência simples (fictício) e pratique o procedimento correto de segurança.",
+      "Caça aos riscos: leve os desbravadores a observarem o próprio ambiente do clube e listarem riscos e como preveni-los.",
+      "Roda de checklist: monte junto com eles um checklist de segurança e cole no mural do clube.",
+      "Jogo de cenários: apresente 3 situações de risco e peça que decidam em grupo a melhor reação."
+    ]},
+    historia: {test:/hist[óo]ria|patrim[ôo]nio|pioneiro|cultura|genealogia/i, ideias:[
+      "Linha do tempo em grupo: cada patrulha recebe fatos embaralhados do tema e monta a ordem correta.",
+      "Contação de história dramatizada, com um 'narrador' e desbravadores representando personagens.",
+      "Caça aos fatos: monte um pequeno quiz sobre curiosidades do tema histórico do requisito.",
+      "Entrevista com um membro mais antigo do clube ou da igreja sobre o tema, se possível."
+    ]}
+  };
+  const IDEA_GENERIC = [
+    "Comece com uma pergunta provocativa sobre o tema antes de explicar o requisito — deixe eles arriscarem palpites.",
+    "Divida a turma em duplas ou trios para que expliquem o requisito um para o outro com as próprias palavras.",
+    "Transforme a explicação em um mini-desafio cronometrado (2 a 3 minutos) para manter a energia lá em cima.",
+    "Feche com uma rodada rápida de 'o que eu aprendi hoje' — cada um fala uma frase só.",
+    "Use um objeto simples (bola, corda, cartolina) como apoio visual para tornar a explicação mais concreta.",
+    "Crie uma pequena competição saudável entre patrulhas relacionada ao requisito, com um prêmio simbólico."
+  ];
+  function pickIdeasFor(item, group){
+    const text = (item.title||"") + " " + (group ? group.label : "");
+    const matched = [];
+    Object.keys(IDEA_BANK).forEach(function(key){
+      const cat = IDEA_BANK[key];
+      if(cat.test.test(text)) matched.push({key:key, ideias:cat.ideias});
+    });
+    let pool = [];
+    matched.forEach(function(m){ pool = pool.concat(m.ideias); });
+    // embaralha e pega até 3 específicas
+    pool = pool.slice().sort(function(){ return Math.random() - 0.5; });
+    const chosen = pool.slice(0, 3);
+    // completa com genéricas embaralhadas até ter 4 no total
+    const genericShuffled = IDEA_GENERIC.slice().sort(function(){ return Math.random() - 0.5; });
+    let gi = 0;
+    while(chosen.length < 4 && gi < genericShuffled.length){ chosen.push(genericShuffled[gi]); gi++; }
+    return {chosen: chosen, hasCategoria: matched.length > 0};
+  }
+  function findGroupForItem(itemId){
+    const all = [].concat(espGroups, clsGroups);
+    for(let i=0;i<all.length;i++){
+      const g = all[i];
+      for(let j=0;j<g.items.length;j++){
+        if(g.items[j].id === itemId) return {group:g, item:g.items[j]};
+      }
+    }
+    return null;
+  }
+  function openIdeasModal(itemId){
+    const found = findGroupForItem(itemId);
+    if(!found) return;
+    renderIdeasModal(found.item, found.group);
+  }
+  function renderIdeasModal(item, group){
+    const res = pickIdeasFor(item, group);
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>💡 Ideias de atividade</h3>';
+    html += '<div class="note-text"><b>'+esc(item.title)+'</b>'+esc(group ? group.label : "")+'</div>';
+    html += '<ul class="idea-list">' + res.chosen.map(function(txt){ return '<li>'+esc(txt)+'</li>'; }).join("") + '</ul>';
+    if(!res.hasCategoria){ html += '<div class="idea-hint">Não encontrei um tema específico para este requisito, então trouxe sugestões gerais que funcionam para qualquer atividade.</div>'; }
+    html += '<div class="actions-row"><button class="btn" id="mShuffle">🔀 Sortear outras</button><button class="btn primary" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("mShuffle").addEventListener("click", function(){ renderIdeasModal(item, group); });
   }
 
   // ---- progresso do membro (barras % + exportar PDF) ----
