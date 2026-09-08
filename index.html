@@ -1326,9 +1326,52 @@ button{font-family:inherit}
           + '<div class="ptrack"><div class="pfill" style="width:'+g.pct+'%"></div></div></div>';
       });
     }
-    html += '<div class="actions-row"><button class="btn primary" id="exportPdfBtn">🖨 Exportar / Imprimir PDF</button></div>';
+    html += '<div class="actions-row"><button class="btn" id="nextStepBtn">➡️ Próximo passo sugerido</button><button class="btn primary" id="exportPdfBtn">🖨 Exportar / Imprimir PDF</button></div>';
+    html += '<div id="nextStepBox"></div>';
     showModal(html);
     document.getElementById("exportPdfBtn").addEventListener("click", function(){ exportProgressPdf(member, p); });
+    document.getElementById("nextStepBtn").addEventListener("click", function(){
+      const box = document.getElementById("nextStepBox");
+      const sug = suggestNextStep(member);
+      if(!sug){ box.innerHTML = '<div class="idea-hint" style="margin-top:12px">Parabéns! Não encontrei nenhum requisito pendente — está tudo aprovado ou em andamento em todas as frentes.</div>'; return; }
+      box.innerHTML = '<div class="progress-row" style="margin-top:12px;background:var(--forest-tint);border-radius:10px;padding:10px 12px">'
+        + '<div class="idea-section-label">Sugestão</div>'
+        + '<div style="font-weight:700;margin:2px 0">'+esc(sug.item.title)+'</div>'
+        + '<div class="idea-hint" style="margin-top:0">'+esc(sug.group.label)+' · '+esc(sug.reason)+'</div>'
+        + '</div>';
+    });
+  }
+
+  // ---- recomendação de próximo passo ----
+  function suggestNextStep(member){
+    const groups = [].concat(espGroups, clsGroups);
+    // 1) prioriza grupos já iniciados (tem pelo menos 1 aprovado ou pendente) e quase completos
+    const candidates = [];
+    groups.forEach(function(g){
+      let done=0, doing=0;
+      const noneItems = [];
+      g.items.forEach(function(it){
+        const s = getStateFor(member, it.id).status || "none";
+        if(s==="aprovado") done++;
+        else if(s==="pendente") doing++;
+        else noneItems.push(it);
+      });
+      if(!noneItems.length) return; // grupo já 100% aprovado ou pendente
+      const started = (done + doing) > 0;
+      const pct = g.items.length ? done / g.items.length : 0;
+      candidates.push({group:g, nextItem:noneItems[0], started:started, pct:pct, remaining:noneItems.length});
+    });
+    if(!candidates.length) return null;
+    candidates.sort(function(a,b){
+      if(a.started !== b.started) return a.started ? -1 : 1; // iniciados primeiro
+      if(b.pct !== a.pct) return b.pct - a.pct; // mais perto de terminar primeiro
+      return a.remaining - b.remaining;
+    });
+    const best = candidates[0];
+    const reason = best.started
+      ? "Você já concluiu "+Math.round(best.pct*100)+"% dessa "+(best.group.kind==="esp"?"especialidade":"classe")+" — continue nessa!"
+      : "Ainda não iniciado — pode ser um bom próximo passo.";
+    return {item:best.nextItem, group:best.group, reason:reason};
   }
 
   function exportProgressPdf(member, p){
@@ -1517,6 +1560,7 @@ button{font-family:inherit}
     html += '<div class="actions-row" style="justify-content:flex-start;flex-wrap:wrap;gap:8px">'
       + '<button class="btn primary" id="openDashboardBtn">📊 Dashboard da Diretoria</button>'
       + '<button class="btn" id="openPresentationBtn">🖥 Modo Apresentação</button>'
+      + '<button class="btn" id="exportClubPdfBtn">📄 Relatório do Clube (PDF)</button>'
       + '</div>';
 
     html += '<h4>Pendentes de aprovação ('+pendings.length+')</h4>';
@@ -1642,6 +1686,7 @@ button{font-family:inherit}
 
     document.getElementById("openDashboardBtn").addEventListener("click", function(){ closeModal(); openDashboard(); });
     document.getElementById("openPresentationBtn").addEventListener("click", function(){ closeModal(); openPresentation(); });
+    document.getElementById("exportClubPdfBtn").addEventListener("click", exportClubPdf);
   }
 
   function logRowHtml(entry){
@@ -1698,6 +1743,62 @@ button{font-family:inherit}
     modalRoot.innerHTML = '<div class="modal-backdrop" id="modalBackdrop"><div class="modal wide">'+html+'</div></div>';
     document.getElementById("modalBackdrop").addEventListener("click", function(e){ if(e.target.id==="modalBackdrop") closeModal(); });
     modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+  }
+
+  // ---- relatório completo do clube (PDF) ----
+  function exportClubPdf(){
+    const allGroups = [].concat(espGroups, clsGroups);
+    const memberStats = membros.map(function(m){
+      const p = computeMemberProgress(m);
+      return {name:m, done:p.totalDone, doing:p.totalDoing, total:p.totalAll};
+    }).sort(function(a,b){ return b.done - a.done; });
+
+    const groupStats = allGroups.map(function(g){
+      let completedCount = 0, startedCount = 0;
+      membros.forEach(function(m){
+        let done=0, doing=0;
+        g.items.forEach(function(it){
+          const s = getStateFor(m, it.id).status || "none";
+          if(s==="aprovado") done++; else if(s==="pendente") doing++;
+        });
+        if(done + doing > 0) startedCount++;
+        if(g.items.length && done === g.items.length) completedCount++;
+      });
+      return {label:g.label, kind:g.kind, completedCount:completedCount, startedCount:startedCount, total:g.items.length};
+    }).filter(function(g){ return g.startedCount > 0; });
+
+    const totalAprov = memberStats.reduce(function(s,m){return s+m.done;},0);
+    const totalPend = memberStats.reduce(function(s,m){return s+m.doing;},0);
+
+    const w = window.open("", "_blank");
+    if(!w){ alert("Seu navegador bloqueou a nova aba. Permita pop-ups para exportar."); return; }
+
+    const memberRows = memberStats.map(function(m,i){
+      return '<tr><td>'+(i+1)+'º</td><td>'+esc(m.name)+'</td><td>'+m.done+'</td><td>'+m.doing+'</td><td>'+m.total+'</td></tr>';
+    }).join("");
+    const groupRows = groupStats.map(function(g){
+      const pct = membros.length ? Math.round((g.completedCount/membros.length)*100) : 0;
+      return '<tr><td>'+esc(g.label)+'</td><td>'+(g.kind==="esp"?"Especialidade":"Classe")+'</td><td>'+g.completedCount+'/'+membros.length+'</td><td>'+pct+'%</td></tr>';
+    }).join("");
+
+    w.document.write(
+      '<title>Relatório do Clube — Guardiões do Vale</title>'
+      + '<style>body{font-family:Arial,sans-serif;padding:30px;color:#22271e}h1{font-size:20px;margin-bottom:2px}'
+      + 'h2{font-size:15px;margin-top:28px;border-bottom:2px solid #2f4f3a;padding-bottom:4px}'
+      + 'p.sub{color:#5c6355;margin-top:0}table{width:100%;border-collapse:collapse;margin-top:14px}'
+      + 'th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #d3d7c9;font-size:12.5px}'
+      + 'th{background:#e8ebe3}.totals{display:flex;gap:24px;margin:18px 0}.totals div{text-align:center}'
+      + '.totals b{display:block;font-size:22px}@media print{h2{page-break-after:avoid}}</style>'
+      + '<h1>Trilha do Desbravador — Relatório Completo do Clube</h1>'
+      + '<p class="sub">Clube Guardiões do Vale · '+new Date().toLocaleDateString("pt-BR")+'</p>'
+      + '<div class="totals"><div><b>'+membros.length+'</b>Membros</div><div><b>'+totalAprov+'</b>Aprovações totais</div><div><b>'+totalPend+'</b>Pendentes no momento</div></div>'
+      + '<h2>Ranking geral por membro</h2>'
+      + '<table><thead><tr><th>#</th><th>Nome</th><th>Aprovados</th><th>Pendentes</th><th>Total de itens</th></tr></thead><tbody>'+memberRows+'</tbody></table>'
+      + '<h2>Especialidades e Classes — progresso do clube</h2>'
+      + '<table><thead><tr><th>Nome</th><th>Tipo</th><th>Concluíram</th><th>%</th></tr></thead><tbody>'+groupRows+'</tbody></table>'
+    );
+    w.document.close();
+    setTimeout(function(){ w.print(); }, 300);
   }
 
   // ---- calendário do clube ----
