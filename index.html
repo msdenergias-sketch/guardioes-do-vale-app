@@ -2001,12 +2001,33 @@ button{font-family:inherit}
 
     const bulkImportBtnEl = document.getElementById("bulkImportBtn");
     if(bulkImportBtnEl) bulkImportBtnEl.addEventListener("click", function(){
-      if(!confirm("Importar "+(BULK_IMPORT.members.length+BULK_IMPORT.staff.length)+" pessoas da planilha (Membros - Classe)?\n\n- Desbravadores: nome, nascimento, classe, batismo e instrutor responsável.\n- Liderança: cria login com senha padrão \"2026\" para quem ainda não tem conta (peça para trocarem a senha depois).\n\nDados já preenchidos manualmente não serão sobrescritos.")) return;
-      const r = runBulkImport();
-      renderMemberSelect();
-      render();
-      alert("Importação concluída:\n"+r.membersAdded+" desbravadores novos, "+r.membersUpdated+" já existiam (dados preenchidos sem sobrescrever).\n"+r.staffAdded+" contas de staff criadas (senha \"2026\"), "+r.staffUpdated+" já existiam e foram atualizadas.");
-      openStaffPanel();
+      let chtml = '<button class="close-x">✕</button>';
+      chtml += '<h3>Importar cadastro da planilha</h3>';
+      chtml += '<p>Importar '+(BULK_IMPORT.members.length+BULK_IMPORT.staff.length)+' pessoas da planilha (Membros - Classe)?</p>';
+      chtml += '<ul class="idea-list">'
+        + '<li><span class="idea-text">Desbravadores: nome, nascimento, classe, batismo e instrutor responsável.</span></li>'
+        + '<li><span class="idea-text">Liderança: cria login com senha padrão "2026" para quem ainda não tem conta (peça para trocarem a senha depois).</span></li>'
+        + '<li><span class="idea-text">Dados já preenchidos manualmente não serão sobrescritos.</span></li>'
+        + '</ul>';
+      chtml += '<div class="actions-row"><button class="btn primary" id="confirmBulkImportBtn">Importar agora</button><button class="btn" id="mCancel">Cancelar</button></div>';
+      showModal(chtml);
+      document.getElementById("mCancel").addEventListener("click", closeModal);
+      document.getElementById("confirmBulkImportBtn").addEventListener("click", function(){
+        const r = runBulkImport();
+        renderMemberSelect();
+        render();
+        let rhtml = '<button class="close-x">✕</button>';
+        rhtml += '<h3>Importação concluída</h3>';
+        rhtml += '<ul class="idea-list">'
+          + '<li><span class="idea-text">'+r.membersAdded+' desbravador(es) novo(s) adicionado(s).</span></li>'
+          + '<li><span class="idea-text">'+r.membersUpdated+' já existia(m) — dados preenchidos sem sobrescrever o que já estava lá.</span></li>'
+          + '<li><span class="idea-text">'+r.staffAdded+' conta(s) de staff criada(s) (senha padrão "2026").</span></li>'
+          + '<li><span class="idea-text">'+r.staffUpdated+' conta(s) de staff já existia(m) e foram atualizadas.</span></li>'
+          + '</ul>';
+        rhtml += '<div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>';
+        showModal(rhtml);
+        document.getElementById("mCancel").addEventListener("click", function(){ openStaffPanel(); });
+      });
     });
     document.getElementById("addMemberBtn").addEventListener("click", function(){
       const input = document.getElementById("newMemberName2");
