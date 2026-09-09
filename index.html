@@ -2952,7 +2952,14 @@ button{font-family:inherit}
       const hist = chamadaHistoryFor(unidade);
       if(!hist.length){ wrap.innerHTML = '<p class="idea-hint">Nenhuma chamada registrada ainda para a unidade '+esc(unidade)+'.</p>'; return; }
       const somaGeral = hist.reduce(function(s,h){ return s + (h.unitTotal||0); }, 0);
+      const months = Array.from(new Set(hist.map(function(rec){ return (rec.data||"").slice(0,7); }))).filter(Boolean).sort().reverse();
       let h = '<h4>Histórico — '+esc(unidade)+' (soma geral: '+somaGeral+' pts)</h4>';
+      if(months.length){
+        h += '<div class="field" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+          + '<div style="flex:1;min-width:140px"><label>Mês para relatório</label><select id="chReportMonth">' + months.map(function(mo){ return '<option value="'+mo+'">'+mo+'</option>'; }).join("") + '</select></div>'
+          + '<button class="btn primary" id="chReportBtn" type="button">📄 Baixar relatório do mês</button>'
+        + '</div>';
+      }
       h += hist.map(function(rec){
         return '<div class="staff-item"><span>'+esc(rec.data)+' — total da unidade: <b>'+(rec.unitTotal||0)+' pts</b></span>'
           + '<span><button class="idea-mini-btn" data-ch-open="'+esc(rec.unidade)+'|'+esc(rec.data)+'">✏️ Abrir</button></span></div>';
@@ -2965,6 +2972,11 @@ button{font-family:inherit}
           openChamadaForm(parts[0], parts[1]);
         });
       });
+      const reportBtn = document.getElementById("chReportBtn");
+      if(reportBtn) reportBtn.addEventListener("click", function(){
+        const mo = document.getElementById("chReportMonth").value;
+        generateMonthlyChamadaReport(unidade, mo);
+      });
     }
     document.getElementById("chUnidade").addEventListener("change", renderHistory);
     document.getElementById("chOpenBtn").addEventListener("click", function(){
@@ -2974,6 +2986,53 @@ button{font-family:inherit}
       closeModal();
       openChamadaForm(unidade, data);
     });
+  }
+  function generateMonthlyChamadaReport(unidade, yearMonth){
+    const recs = chamadaHistoryFor(unidade).filter(function(r){ return (r.data||"").slice(0,7) === yearMonth; });
+    if(!recs.length){ alert("Nenhuma chamada encontrada nesse mês."); return; }
+    const cargoOrder = CARGO_UNIDADE;
+    const memberSet = [];
+    recs.forEach(function(r){ Object.keys(r.membros||{}).forEach(function(m){ if(memberSet.indexOf(m)===-1) memberSet.push(m); }); });
+    memberSet.sort(function(a,b){
+      const ca = cargoOrder.indexOf((memberInfo[a]||{}).cargoUnidade||"Desbravador(a)");
+      const cb = cargoOrder.indexOf((memberInfo[b]||{}).cargoUnidade||"Desbravador(a)");
+      return (ca<0?99:ca) - (cb<0?99:cb) || a.localeCompare(b);
+    });
+    const logoEl = document.querySelector(".brand-badge img");
+    const logoSrc = logoEl ? logoEl.getAttribute("src") : "";
+    const style = '<style>'
+      + 'body{font-family:Arial,sans-serif;padding:28px;color:#22271e}'
+      + '.rhead{display:flex;align-items:center;gap:14px;border-bottom:3px solid #2f4f3a;padding-bottom:12px;margin-bottom:16px}'
+      + '.rhead img{width:56px;height:56px;object-fit:contain}'
+      + '.rhead h1{font-size:18px;margin:0}'
+      + '.rhead .club{font-size:12px;color:#8a5b2e;font-weight:600;margin-top:2px}'
+      + 'table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:8px}'
+      + 'th,td{border:1px solid #b9c0ac;padding:5px 6px;text-align:center}'
+      + 'th{background:#2f4f3a;color:#fff}'
+      + 'td.nm{text-align:left;font-weight:600}'
+      + 'tfoot td{font-weight:700;background:#eef1e8}'
+      + '@media print{table{page-break-inside:auto} tr{page-break-inside:avoid}}'
+      + '</style>';
+    let body = '<div class="rhead">'
+        + (logoSrc ? '<img src="'+logoSrc+'" alt="logo">' : '')
+        + '<div><h1>Relatório mensal — Chamada da Unidade '+esc(unidade)+'</h1><div class="club">Clube Guardiões do Vale — '+esc(yearMonth)+'</div></div>'
+      + '</div>';
+    body += '<table><thead><tr><th style="text-align:left">Desbravador(a)</th>' + recs.map(function(r){ return '<th>'+esc(r.data)+'</th>'; }).join("") + '<th>Soma do mês</th></tr></thead><tbody>';
+    let colTotals = recs.map(function(){ return 0; });
+    memberSet.forEach(function(m){
+      let rowSum = 0;
+      let row = '<tr><td class="nm">'+esc(m)+'</td>';
+      recs.forEach(function(r, i){
+        const pts = (r.membros && r.membros[m] && r.membros[m].total) || 0;
+        rowSum += pts;
+        colTotals[i] += pts;
+        row += '<td>'+pts+'</td>';
+      });
+      row += '<td><b>'+rowSum+'</b></td></tr>';
+      body += row;
+    });
+    body += '</tbody><tfoot><tr><td>Total da unidade</td>' + colTotals.map(function(t){ return '<td>'+t+'</td>'; }).join("") + '<td>'+colTotals.reduce(function(a,b){return a+b;},0)+'</td></tr></tfoot></table>';
+    downloadReport("Relatorio mensal - Chamada - "+unidade+" - "+yearMonth, body, style);
   }
   function classeEspSnapshot(m){
     const p = classYearProgress(m);
