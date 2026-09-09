@@ -298,19 +298,26 @@ button{font-family:inherit}
 .roteiro-block{margin-bottom:16px}
 .esp-parent{color:var(--muted);font-weight:600}
 .spec-block{margin-bottom:8px}
-.spec-head{display:flex;align-items:center;gap:10px;background:var(--surface-raised);border:1px solid var(--line);border-radius:10px;padding:11px 14px;cursor:pointer;box-shadow:var(--shadow)}
+.spec-head{background:var(--surface-raised);border:1px solid var(--line);border-radius:10px;padding:11px 14px;cursor:pointer;box-shadow:var(--shadow)}
 .spec-head:hover{border-color:var(--forest)}
+.spec-head-main{display:flex;align-items:center;gap:10px}
+.spec-head-meta{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;padding-left:20px}
 .spec-caret{color:var(--muted);font-size:11px;width:10px;flex-shrink:0}
 .spec-code{font-family:"Oswald";color:var(--muted);font-size:12px;flex-shrink:0}
-.spec-name{font-weight:600;flex:1}
+.spec-name{font-weight:600;flex:1;min-width:0;overflow-wrap:break-word}
 .spec-link{color:var(--forest);text-decoration:none;font-size:12px;font-weight:500;white-space:nowrap}
 .spec-link:hover{text-decoration:underline}
-.spec-progress{font-size:12px;font-weight:600;padding:3px 10px;border-radius:100px;white-space:nowrap}
+.spec-progress{font-size:12px;font-weight:600;padding:3px 10px;border-radius:100px;white-space:nowrap;flex-shrink:0}
 .spec-progress[data-s="none"]{background:var(--status-none-tint);color:var(--status-none)}
 .spec-progress[data-s="pendente"]{background:var(--status-doing-tint);color:var(--status-doing)}
 .spec-progress[data-s="aprovado"]{background:var(--status-done-tint);color:var(--status-done)}
 .spec-items{padding:8px 0 0 20px}
-@media (max-width:860px){ .spec-name{flex-basis:100%;order:3} }
+@media (max-width:600px){
+  .spec-head-main{flex-wrap:wrap}
+  .spec-name{flex-basis:100%;order:3;margin-top:2px}
+  .spec-progress{order:2;margin-left:auto}
+  .spec-head-meta{padding-left:0}
+}
 .cal-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:11px;color:var(--muted)}
 .cal-legend-item{display:flex;align-items:center;gap:5px}
 .thumb{width:32px;height:32px;border-radius:8px;object-fit:cover;border:1px solid var(--line);cursor:pointer}
@@ -1239,11 +1246,13 @@ button{font-family:inherit}
     const driveHtml = (spec.driveUrl && currentStaff) ? '<a href="'+spec.driveUrl+'" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()">📁 Pasta (Drive) ↗</a>' : '';
     return '<div class="spec-block">'
       + '<div class="spec-head" data-spec-toggle="'+esc(spec.code)+'">'
-        + '<span class="spec-caret">'+(expanded?"▼":"▶")+'</span>'
-        + '<span class="spec-code">'+esc(spec.code)+'</span>'
-        + '<span class="spec-name">'+esc(spec.name)+'</span>'
-        + wikiHtml + driveHtml
-        + '<span class="spec-progress" data-s="'+(done===total?"aprovado":(done>0?"pendente":"none"))+'">'+done+'/'+total+' ('+pct+'%)</span>'
+        + '<div class="spec-head-main">'
+          + '<span class="spec-caret">'+(expanded?"▼":"▶")+'</span>'
+          + '<span class="spec-code">'+esc(spec.code)+'</span>'
+          + '<span class="spec-name">'+esc(spec.name)+'</span>'
+          + '<span class="spec-progress" data-s="'+(done===total?"aprovado":(done>0?"pendente":"none"))+'">'+done+'/'+total+' ('+pct+'%)</span>'
+        + '</div>'
+        + (wikiHtml || driveHtml ? '<div class="spec-head-meta">'+wikiHtml+driveHtml+'</div>' : '')
       + '</div>'
       + (expanded ? '<div class="spec-items">'+inner+'</div>' : '')
     + '</div>';
