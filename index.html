@@ -1270,6 +1270,7 @@ button{font-family:inherit}
     const driveHtml = (spec.driveUrl && currentStaff) ? '<a href="'+spec.driveUrl+'" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()">📁 Pasta (Drive) ↗</a>' : '';
     const attachAllHtml = currentMember ? '<button type="button" class="spec-link" data-spec-attach="'+esc(spec.code)+'" onclick="event.stopPropagation()">📎 Anexar 1 arquivo p/ todos os requisitos</button><input type="file" accept="image/*,.pdf,.doc,.docx" data-spec-attach-input="'+esc(spec.code)+'" style="display:none">' : '';
     const bulkAllHtml = currentStaff ? '<button type="button" class="spec-link" data-spec-bulk="'+esc(spec.code)+'" onclick="event.stopPropagation()">👥 Marcar/aprovar todos os requisitos</button>' : '';
+    const sheetHtml = '<button type="button" class="spec-link" data-spec-sheet="'+esc(spec.code)+'" onclick="event.stopPropagation()">🖨️ Ficha para imprimir</button>';
     return '<div class="spec-block">'
       + '<div class="spec-head" data-spec-toggle="'+esc(spec.code)+'">'
         + '<div class="spec-head-main">'
@@ -1278,7 +1279,7 @@ button{font-family:inherit}
           + '<span class="spec-name">'+esc(spec.name)+'</span>'
           + '<span class="spec-progress" data-s="'+(done===total?"aprovado":(done>0?"pendente":"none"))+'">'+done+'/'+total+' ('+pct+'%)</span>'
         + '</div>'
-        + (wikiHtml || driveHtml || attachAllHtml || bulkAllHtml ? '<div class="spec-head-meta">'+wikiHtml+driveHtml+attachAllHtml+bulkAllHtml+'</div>' : '')
+        + '<div class="spec-head-meta">'+wikiHtml+driveHtml+attachAllHtml+bulkAllHtml+sheetHtml+'</div>'
       + '</div>'
       + (expanded ? '<div class="spec-items">'+inner+'</div>' : '')
     + '</div>';
@@ -1372,6 +1373,11 @@ button{font-family:inherit}
     listEl.querySelectorAll("[data-spec-bulk]").forEach(function(btn){
       btn.addEventListener("click", function(){
         openSpecBulkModal(btn.getAttribute("data-spec-bulk"));
+      });
+    });
+    listEl.querySelectorAll("[data-spec-sheet]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        openSpecSheetModal(btn.getAttribute("data-spec-sheet"));
       });
     });
     listEl.querySelectorAll("[data-mandatory]").forEach(function(btn){
@@ -1850,6 +1856,63 @@ button{font-family:inherit}
       document.getElementById("mCancel").addEventListener("click", closeModal);
     });
   }
+  // ---- ficha impressa de uma especialidade (com espaços para preencher à mão) ----
+  function openSpecSheetModal(specCode){
+    const rows = specItemsFor(specCode);
+    if(!rows.length) return;
+    const specName = rows[0].item.specialtyName || specCode;
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>Ficha para imprimir</h3>';
+    html += '<p><b>'+esc(specCode)+' — '+esc(specName)+'</b> ('+rows.length+' requisitos)</p>';
+    html += '<div class="field"><label>Nome do desbravador (opcional — deixe em branco pra fotocopiar e distribuir)</label>';
+    html += '<select id="sheetMemberSel"><option value="">— Em branco —</option>' + membros.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="actions-row"><button class="btn primary" id="genSheetBtn">🖨️ Gerar ficha</button><button class="btn" id="mCancel">Cancelar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("genSheetBtn").addEventListener("click", function(){
+      const memberName = document.getElementById("sheetMemberSel").value;
+      generateSpecSheet(specCode, specName, rows, memberName);
+      closeModal();
+    });
+  }
+
+  function generateSpecSheet(specCode, specName, rows, memberName){
+    const logoEl = document.querySelector(".brand-badge img");
+    const logoSrc = logoEl ? logoEl.getAttribute("src") : "";
+    const style = '<style>'
+      + 'body{font-family:Arial,sans-serif;padding:32px;color:#22271e}'
+      + '.sheet-head{display:flex;align-items:center;gap:16px;border-bottom:3px solid #2f4f3a;padding-bottom:14px;margin-bottom:18px}'
+      + '.sheet-head img{width:64px;height:64px;object-fit:contain}'
+      + '.sheet-head h1{font-size:19px;margin:0}'
+      + '.sheet-head .club{font-size:12px;color:#8a5b2e;font-weight:600;margin-top:2px}'
+      + '.sheet-fields{display:flex;gap:24px;margin-bottom:20px;font-size:13px}'
+      + '.sheet-fields .f{flex:1;border-bottom:1px solid #22271e;padding-bottom:4px}'
+      + '.sheet-fields .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:#5c6355;display:block;margin-bottom:10px}'
+      + '.req{margin-bottom:22px;page-break-inside:avoid}'
+      + '.req .num{font-weight:700;font-size:13px}'
+      + '.req .txt{font-size:13px;margin:2px 0 8px}'
+      + '.req .lines{border-bottom:1px solid #b9c0ac;height:22px}'
+      + '.sign{margin-top:36px;display:flex;gap:40px}'
+      + '.sign div{flex:1;border-top:1px solid #22271e;padding-top:4px;font-size:11px;color:#5c6355;text-align:center}'
+      + '@media print{.req{page-break-inside:avoid}}'
+      + '</style>';
+    const reqHtml = rows.map(function(r,i){
+      return '<div class="req"><div class="num">'+(i+1)+'.</div><div class="txt">'+esc(r.item.title)+'</div>'
+        + '<div class="lines"></div><div class="lines"></div><div class="lines"></div></div>';
+    }).join("");
+    const body = '<div class="sheet-head">'
+        + (logoSrc ? '<img src="'+logoSrc+'" alt="logo">' : '')
+        + '<div><h1>'+esc(specCode)+' — '+esc(specName)+'</h1><div class="club">Clube Guardiões do Vale — Trilha do Desbravador</div></div>'
+      + '</div>'
+      + '<div class="sheet-fields">'
+        + '<div class="f"><span class="lbl">Nome do desbravador</span>'+esc(memberName||"")+'</div>'
+        + '<div class="f" style="max-width:140px"><span class="lbl">Data</span>___/___/______</div>'
+      + '</div>'
+      + reqHtml
+      + '<div class="sign"><div>Assinatura do desbravador</div><div>Assinatura do instrutor responsável</div></div>';
+    downloadReport("Ficha - "+specCode+(memberName?" - "+memberName:""), body, style);
+  }
+
   function openIdeasModal(itemId){
     const found = findGroupForItem(itemId);
     if(!found) return;
