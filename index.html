@@ -3284,11 +3284,57 @@ button{font-family:inherit}
   let calViewMode = "reunioes"; // "reunioes" | "classes" | "roteiro"
   let roteiroTab = "domingo"; // "domingo" | "sabado" | "lideranca_pais"
   const ROTEIRO_LABELS = {domingo:"Reunião de Domingo", sabado:"Sábado/Eventos", lideranca_pais:"Liderança e Pais"};
+  function materialsForRoteiro(tab){
+    const blocks = ROTEIRO[tab] || [];
+    const set = [];
+    blocks.forEach(function(bl){
+      bl.items.forEach(function(it){
+        if(!it.materiais) return;
+        it.materiais.split(/[,;]/).map(function(s){ return s.trim(); }).filter(Boolean).forEach(function(mat){
+          if(set.indexOf(mat) === -1) set.push(mat);
+        });
+      });
+    });
+    return set;
+  }
+  let materialChecklist = {};
+  try{ materialChecklist = JSON.parse(localStorage.getItem("trilha_material_checklist") || "{}"); }catch(e){ materialChecklist = {}; }
+  function persistMaterialChecklist(){ try{ localStorage.setItem("trilha_material_checklist", JSON.stringify(materialChecklist)); }catch(e){} }
+  function openMaterialChecklist(tab){
+    const mats = materialsForRoteiro(tab);
+    function render(){
+      let html = '<button class="close-x">✕</button>';
+      html += '<h3>🧰 Checklist de material — '+esc(ROTEIRO_LABELS[tab])+'</h3>';
+      if(!mats.length){
+        html += '<p class="pending-empty">Nenhum material listado no roteiro dessa reunião.</p>';
+      } else {
+        html += '<p class="idea-hint" style="margin-top:-4px">Marque o que já está separado para a próxima reunião. Fica salvo neste aparelho.</p>';
+        html += '<ul class="idea-list">' + mats.map(function(mat){
+          const checked = !!materialChecklist[tab+"::"+mat];
+          return '<li><label class="class-check" style="display:flex;align-items:center;gap:8px"><input type="checkbox" data-mat-check="'+esc(mat)+'"'+(checked?" checked":"")+'><span'+(checked?' style="text-decoration:line-through;opacity:.6"':'')+'>'+esc(mat)+'</span></label></li>';
+        }).join("") + '</ul>';
+      }
+      html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
+      showModal(html);
+      document.getElementById("mCancel").addEventListener("click", closeModal);
+      modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+      modalRoot.querySelectorAll("[data-mat-check]").forEach(function(cb){
+        cb.addEventListener("change", function(){
+          const mat = cb.getAttribute("data-mat-check");
+          materialChecklist[tab+"::"+mat] = cb.checked;
+          persistMaterialChecklist();
+          render();
+        });
+      });
+    }
+    render();
+  }
   function renderRoteiroHtml(){
     const blocks = ROTEIRO[roteiroTab] || [];
     let html = '<div class="roteiro-subtabs">' + Object.keys(ROTEIRO_LABELS).map(function(k){
       return '<button class="cal-tab'+(roteiroTab===k?' active':'')+'" data-roteiro-tab="'+k+'">'+esc(ROTEIRO_LABELS[k])+'</button>';
     }).join("") + '</div>';
+    html += '<div style="margin:8px 0"><button class="btn" id="roteiroChecklistBtn">🧰 Checklist de material desta reunião</button></div>';
     if(!blocks.length){ html += '<div class="idea-hint">Nenhum roteiro cadastrado.</div>'; return html; }
     html += blocks.map(function(bl, i){
       return '<div class="roteiro-block">'
@@ -3344,6 +3390,8 @@ button{font-family:inherit}
       modalRoot.querySelectorAll("[data-roteiro-tab]").forEach(function(btn){
         btn.addEventListener("click", function(){ roteiroTab = btn.getAttribute("data-roteiro-tab"); renderCalendarModal(); });
       });
+      const checklistBtn = document.getElementById("roteiroChecklistBtn");
+      if(checklistBtn) checklistBtn.addEventListener("click", function(){ openMaterialChecklist(roteiroTab); });
       return;
     }
     html += '<div class="cal-header">';
