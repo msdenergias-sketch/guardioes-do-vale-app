@@ -151,6 +151,7 @@ button{font-family:inherit}
 .coord-btn{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--rope);cursor:pointer;font-size:15px;flex-shrink:0}
 .coord-btn:hover{background:var(--rope-tint)}
 .coord-btn.active{background:var(--rope);color:#fff;border-color:var(--rope)}
+.coord-badge{position:absolute;top:-6px;right:-6px;background:#d94e3f;color:#fff;font-size:10px;font-weight:700;line-height:1;padding:3px 5px;border-radius:999px;min-width:16px;text-align:center;box-shadow:0 0 0 2px var(--surface)}
 
 .pill[data-s="pendente"]{background:var(--status-doing-tint);color:var(--status-doing)}
 .pill[data-s="recusado"]{background:var(--status-none-tint);color:var(--status-none)}
@@ -476,7 +477,7 @@ button{font-family:inherit}
       <button class="coord-btn" id="calendarBtn" type="button" title="Calendário do Clube">📅</button>
       <button class="coord-btn" id="meetingBtn" type="button" title="Modo Reunião">🎤</button>
       <button class="coord-btn" id="themeBtn" type="button" title="Alternar tema claro/escuro">🌓</button>
-      <button class="coord-btn" id="coordBtn" type="button" title="Área do Coordenador">🔒</button>
+      <button class="coord-btn" id="coordBtn" type="button" title="Área do Coordenador" style="position:relative">🔒<span id="coordBadge" class="coord-badge" hidden>0</span></button>
     </div>
     <div class="kpis">
       <div class="kpi done"><b id="kpi-done">0</b><small>Aprovados</small></div>
@@ -3526,10 +3527,19 @@ button{font-family:inherit}
     + '</div>';
   }
 
+  function updateCoordBadge(){
+    const badge = document.getElementById("coordBadge");
+    if(!badge) return;
+    if(!currentStaff){ badge.hidden = true; return; }
+    const n = collectPendings().length;
+    if(n > 0){ badge.textContent = n > 99 ? "99+" : String(n); badge.hidden = false; }
+    else { badge.hidden = true; }
+  }
   function render(){
     renderSidebar();
     renderList();
     renderKpis();
+    updateCoordBadge();
   }
 
   searchEl.addEventListener("input", function(){
