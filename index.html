@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
 <title>Trilha do Desbravador</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2e5e4e">
@@ -58,6 +59,7 @@
 </script>
 <style>
 :root{
+  color-scheme: light;
   --bg:#e8ebe3;
   --surface:#f6f7f2;
   --surface-raised:#ffffff;
@@ -80,6 +82,7 @@
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
+    color-scheme: dark;
     --bg:#171b16;
     --surface:#1e231b;
     --surface-raised:#242a20;
@@ -102,6 +105,7 @@
   }
 }
 :root[data-theme="dark"]{
+  color-scheme: dark;
   --bg:#171b16;
   --surface:#1e231b;
   --surface-raised:#242a20;
