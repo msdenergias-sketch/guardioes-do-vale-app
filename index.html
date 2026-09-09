@@ -2011,41 +2011,50 @@ button{font-family:inherit}
     return {item:best.nextItem, group:best.group, reason:reason};
   }
 
-  // Imprime/gera PDF usando a própria página (em vez de abrir uma nova janela/aba).
-  // window.open() dentro de um app instalado (PWA) no celular costuma "sair" do app
-  // para o navegador, dando a impressão de que o aplicativo fechou. Preenchendo uma
-  // área oculta e chamando window.print() na mesma janela, isso não acontece.
-  function printReport(bodyHtml, styleHtml){
-    const el = document.getElementById("printArea");
-    el.innerHTML = (styleHtml||"") + bodyHtml;
-    el.style.display = "block";
-    function cleanup(){
-      el.style.display = "none";
-      el.innerHTML = "";
-      window.removeEventListener("afterprint", cleanup);
+  // Gera um arquivo .html independente e dispara o download/compartilhamento
+  // dele — em vez de tentar imprimir dentro da própria página. window.open()
+  // e window.print() se mostraram muito inconsistentes em navegadores móveis
+  // (algumas combinações geravam dezenas de páginas em branco, ou fechavam o
+  // app instalado). Um arquivo separado, sem o resto do app, imprime/abre de
+  // forma confiável em qualquer aparelho, e ainda pode ser reaberto depois.
+  function downloadReport(filename, bodyHtml, styleHtml){
+    const fullDoc = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+      + '<title>'+esc(filename)+'</title>'
+      + (styleHtml||'')
+      + '</head><body>'+bodyHtml+'</body></html>';
+    try{
+      const blob = new Blob([fullDoc], {type: "text/html"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename.replace(/[^a-zA-Z0-9\-_ ]/g, "_") + ".html";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 8000);
+      showModal('<button class="close-x">✕</button><h3>Relatório baixado</h3><p>O arquivo <b>'+esc(filename)+'.html</b> foi salvo/baixado no aparelho. Abra-o pelo navegador ou gerenciador de arquivos — de lá dá para imprimir ou compartilhar (inclusive gerar PDF pela opção "Salvar como PDF" da tela de impressão).</p><div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>');
+      const btn = document.getElementById("mCancel");
+      if(btn) btn.addEventListener("click", closeModal);
+    }catch(e){
+      alert("Não foi possível gerar o arquivo do relatório neste navegador.");
     }
-    window.addEventListener("afterprint", cleanup);
-    setTimeout(function(){
-      window.print();
-      // fallback: em alguns navegadores móveis o evento afterprint não dispara
-      setTimeout(cleanup, 4000);
-    }, 80);
   }
 
   function exportProgressPdf(member, p){
     const rows = p.groups.map(function(g){
       return '<tr><td>'+esc(g.label)+'</td><td>'+g.done+'/'+g.total+'</td><td>'+g.pct+'%</td></tr>';
     }).join("");
-    const style = '<style>#printArea{font-family:Arial,sans-serif;padding:30px;color:#22271e}#printArea h1{font-size:20px;margin-bottom:2px}'
-      + '#printArea p.sub{color:#5c6355;margin-top:0}#printArea table{width:100%;border-collapse:collapse;margin-top:20px}'
-      + '#printArea th,#printArea td{text-align:left;padding:8px 10px;border-bottom:1px solid #d3d7c9;font-size:13px}'
-      + '#printArea th{background:#e8ebe3}#printArea .totals{display:flex;gap:24px;margin:18px 0}#printArea .totals div{text-align:center}'
-      + '#printArea .totals b{display:block;font-size:20px}</style>';
+    const style = '<style>body{font-family:Arial,sans-serif;padding:30px;color:#22271e}h1{font-size:20px;margin-bottom:2px}'
+      + 'p.sub{color:#5c6355;margin-top:0}table{width:100%;border-collapse:collapse;margin-top:20px}'
+      + 'th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #d3d7c9;font-size:13px}'
+      + 'th{background:#e8ebe3}.totals{display:flex;gap:24px;margin:18px 0}.totals div{text-align:center}'
+      + '.totals b{display:block;font-size:20px}</style>';
     const body = '<h1>Trilha do Desbravador — Progresso</h1>'
       + '<p class="sub">'+esc(member)+' · Clube Guardiões do Vale · '+new Date().toLocaleDateString("pt-BR")+'</p>'
       + '<div class="totals"><div><b>'+p.totalDone+'</b>Aprovados</div><div><b>'+p.totalDoing+'</b>Pendentes</div><div><b>'+p.totalAll+'</b>Total de itens</div></div>'
       + '<table><thead><tr><th>Especialidade / Classe</th><th>Concluído</th><th>%</th></tr></thead><tbody>'+rows+'</tbody></table>';
-    printReport(body, style);
+    downloadReport("Progresso — "+member, body, style);
   }
 
   const progressBtn = document.getElementById("progressBtn");
@@ -2715,12 +2724,12 @@ button{font-family:inherit}
       return '<tr><td>'+esc(g.label)+'</td><td>'+(g.kind==="esp"?"Especialidade":"Classe")+'</td><td>'+g.completedCount+'/'+membros.length+'</td><td>'+pct+'%</td></tr>';
     }).join("");
 
-    const style = '<style>#printArea{font-family:Arial,sans-serif;padding:30px;color:#22271e}#printArea h1{font-size:20px;margin-bottom:2px}'
-      + '#printArea h2{font-size:15px;margin-top:28px;border-bottom:2px solid #2f4f3a;padding-bottom:4px}'
-      + '#printArea p.sub{color:#5c6355;margin-top:0}#printArea table{width:100%;border-collapse:collapse;margin-top:14px}'
-      + '#printArea th,#printArea td{text-align:left;padding:8px 10px;border-bottom:1px solid #d3d7c9;font-size:12.5px}'
-      + '#printArea th{background:#e8ebe3}#printArea .totals{display:flex;gap:24px;margin:18px 0}#printArea .totals div{text-align:center}'
-      + '#printArea .totals b{display:block;font-size:22px}@media print{#printArea h2{page-break-after:avoid}}</style>';
+    const style = '<style>body{font-family:Arial,sans-serif;padding:30px;color:#22271e}h1{font-size:20px;margin-bottom:2px}'
+      + 'h2{font-size:15px;margin-top:28px;border-bottom:2px solid #2f4f3a;padding-bottom:4px}'
+      + 'p.sub{color:#5c6355;margin-top:0}table{width:100%;border-collapse:collapse;margin-top:14px}'
+      + 'th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #d3d7c9;font-size:12.5px}'
+      + 'th{background:#e8ebe3}.totals{display:flex;gap:24px;margin:18px 0}.totals div{text-align:center}'
+      + '.totals b{display:block;font-size:22px}@media print{h2{page-break-after:avoid}}</style>';
     const body = '<h1>Trilha do Desbravador — Relatório Completo do Clube</h1>'
       + '<p class="sub">Clube Guardiões do Vale · '+new Date().toLocaleDateString("pt-BR")+'</p>'
       + '<div class="totals"><div><b>'+membros.length+'</b>Membros</div><div><b>'+totalAprov+'</b>Aprovações totais</div><div><b>'+totalPend+'</b>Pendentes no momento</div></div>'
@@ -2728,7 +2737,7 @@ button{font-family:inherit}
       + '<table><thead><tr><th>#</th><th>Nome</th><th>Classe do ano</th><th>Aprovados</th><th>Pendentes</th><th>Total requisitos da classe</th></tr></thead><tbody>'+memberRows+'</tbody></table>'
       + '<h2>Especialidades e Classes — progresso do clube</h2>'
       + '<table><thead><tr><th>Nome</th><th>Tipo</th><th>Concluíram</th><th>%</th></tr></thead><tbody>'+groupRows+'</tbody></table>';
-    printReport(body, style);
+    downloadReport("Relatório do Clube — "+new Date().toLocaleDateString("pt-BR").replace(/\//g,"-"), body, style);
   }
 
   // ---- calendário do clube ----
