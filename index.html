@@ -1226,7 +1226,8 @@ button{font-family:inherit}
       const headStyle = gColor ? ' style="border-left:6px solid '+gColor+';padding-left:10px"' : '';
       const gDot = gColor ? '<span class="class-dot" style="background:'+gColor+'"></span>' : '';
       const mandatoryHtml = (gColor && CLASS_MANDATORY[g.label]) ? ' · <button class="linklike" data-mandatory="'+esc(g.label)+'">🎖️ Especialidades Obrigatórias</button>' : '';
-      html += '<div class="section-head"'+headStyle+'><h2>'+gDot+esc(g.label)+'</h2><span class="sub">'+c.done+' completos · '+c.doing+' em andamento · '+c.none+' a iniciar de '+c.total+cadernoHtml+mandatoryHtml+'</span><div class="bar"'+(gColor?' style="background:'+gColor+'22"':'')+'></div></div>';
+      const classSheetHtml = (g.kind === "classe") ? ' · <button class="linklike" data-class-sheet="'+esc(g.label)+'">🖨️ Ficha para imprimir</button>' : '';
+      html += '<div class="section-head"'+headStyle+'><h2>'+gDot+esc(g.label)+'</h2><span class="sub">'+c.done+' completos · '+c.doing+' em andamento · '+c.none+' a iniciar de '+c.total+cadernoHtml+mandatoryHtml+classSheetHtml+'</span><div class="bar"'+(gColor?' style="background:'+gColor+'22"':'')+'></div></div>';
       buildBlocks(items).forEach(function(b){
         if(b.type === "specialty") html += specialtyHeadHtml(b.spec, g);
         else html += rowHtml(b.it, g.kind);
@@ -1382,6 +1383,9 @@ button{font-family:inherit}
     });
     listEl.querySelectorAll("[data-mandatory]").forEach(function(btn){
       btn.addEventListener("click", function(){ openMandatoryModal(btn.getAttribute("data-mandatory")); });
+    });
+    listEl.querySelectorAll("[data-class-sheet]").forEach(function(btn){
+      btn.addEventListener("click", function(){ openClassSheetModal(btn.getAttribute("data-class-sheet")); });
     });
     listEl.querySelectorAll("[data-toggle]").forEach(function(btn){
       btn.addEventListener("click", function(){
@@ -1876,7 +1880,10 @@ button{font-family:inherit}
     });
   }
 
-  function generateSpecSheet(specCode, specName, rows, memberName){
+  // Monta o HTML/CSS de uma ficha impressa genérica (logo + campos + requisitos com
+  // espaço para escrever + assinaturas). Reaproveitado pela ficha de especialidade e
+  // pela ficha de classe.
+  function buildWorksheet(headTitle, reqTexts, memberName){
     const logoEl = document.querySelector(".brand-badge img");
     const logoSrc = logoEl ? logoEl.getAttribute("src") : "";
     const style = '<style>'
@@ -1896,21 +1903,53 @@ button{font-family:inherit}
       + '.sign div{flex:1;border-top:1px solid #22271e;padding-top:4px;font-size:11px;color:#5c6355;text-align:center}'
       + '@media print{.req{page-break-inside:avoid}}'
       + '</style>';
-    const reqHtml = rows.map(function(r,i){
-      return '<div class="req"><div class="num">'+(i+1)+'.</div><div class="txt">'+esc(r.item.title)+'</div>'
+    const reqHtml = reqTexts.length ? reqTexts.map(function(t,i){
+      return '<div class="req"><div class="num">'+(i+1)+'.</div><div class="txt">'+esc(t)+'</div>'
         + '<div class="lines"></div><div class="lines"></div><div class="lines"></div></div>';
-    }).join("");
+    }).join("") : '<p style="color:#5c6355">Nenhum requisito pendente — tudo já foi aprovado! 🎉</p>';
     const body = '<div class="sheet-head">'
         + (logoSrc ? '<img src="'+logoSrc+'" alt="logo">' : '')
-        + '<div><h1>'+esc(specCode)+' — '+esc(specName)+'</h1><div class="club">Clube Guardiões do Vale — Trilha do Desbravador</div></div>'
+        + '<div><h1>'+headTitle+'</h1><div class="club">Clube Guardiões do Vale — Trilha do Desbravador</div></div>'
       + '</div>'
       + '<div class="sheet-fields">'
         + '<div class="f"><span class="lbl">Nome do desbravador</span>'+esc(memberName||"")+'</div>'
         + '<div class="f" style="max-width:140px"><span class="lbl">Data</span>___/___/______</div>'
       + '</div>'
       + reqHtml
-      + '<div class="sign"><div>Assinatura do desbravador</div><div>Assinatura do instrutor responsável</div></div>';
-    downloadReport("Ficha - "+specCode+(memberName?" - "+memberName:""), body, style);
+      + (reqTexts.length ? '<div class="sign"><div>Assinatura do desbravador</div><div>Assinatura do instrutor responsável</div></div>' : '');
+    return {body:body, style:style};
+  }
+
+  function generateSpecSheet(specCode, specName, rows, memberName){
+    const w = buildWorksheet(esc(specCode)+' — '+esc(specName), rows.map(function(r){ return r.item.title; }), memberName);
+    downloadReport("Ficha - "+specCode+(memberName?" - "+memberName:""), w.body, w.style);
+  }
+
+  // ---- ficha impressa de uma classe inteira (todos os requisitos, ou só o que falta) ----
+  function openClassSheetModal(className){
+    const g = clsGroups.find(function(x){ return x.label === className; });
+    if(!g || !g.items.length) return;
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>Ficha para imprimir</h3>';
+    html += '<p><b>Classe '+esc(className)+'</b> ('+g.items.length+' requisitos)</p>';
+    html += '<div class="field"><label>Nome do desbravador (opcional — deixe em branco pra fotocopiar e distribuir)</label>';
+    html += '<select id="classSheetMemberSel"><option value="">— Em branco —</option>' + membros.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="field"><label class="class-check" style="display:inline-flex"><input type="checkbox" id="classSheetOnlyMissing"><span>Incluir só o que ainda falta (exclui requisitos já aprovados) — precisa escolher um desbravador</span></label></div>';
+    html += '<div class="actions-row"><button class="btn primary" id="genClassSheetBtn">🖨️ Gerar ficha</button><button class="btn" id="mCancel">Cancelar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("genClassSheetBtn").addEventListener("click", function(){
+      const memberName = document.getElementById("classSheetMemberSel").value;
+      const onlyMissing = document.getElementById("classSheetOnlyMissing").checked && !!memberName;
+      let items = g.items;
+      if(onlyMissing){
+        items = items.filter(function(it){ return (getStateFor(memberName, it.id).status||"none") !== "aprovado"; });
+      }
+      const texts = items.map(function(it){ return it.idx+" · "+it.num+" — "+it.title; });
+      const w = buildWorksheet('Classe '+esc(className)+(onlyMissing?' — pendências':''), texts, memberName);
+      downloadReport("Ficha - Classe "+className+(memberName?" - "+memberName:"")+(onlyMissing?" - pendencias":""), w.body, w.style);
+      closeModal();
+    });
   }
 
   function openIdeasModal(itemId){
