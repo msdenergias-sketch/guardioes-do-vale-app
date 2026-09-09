@@ -256,6 +256,11 @@ button{font-family:inherit}
 .idea-section-label{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:10px 0 2px;font-weight:700}
 .idea-hint{font-size:11px;color:var(--muted, #8a9080);margin-top:6px;font-style:italic}
 
+.class-checks{display:flex;flex-wrap:wrap;gap:8px}
+.class-check{display:flex;align-items:center;gap:5px;font-size:12px;background:var(--forest-tint);padding:5px 9px;border-radius:8px;cursor:pointer}
+.class-check input{margin:0}
+.birth-selects{display:flex;gap:6px}
+.birth-selects select{flex:1;padding:9px 6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:13px}
 .mand-req{margin-bottom:14px}
 .mand-req-label{font-size:11.5px;color:var(--muted);font-weight:600;margin-bottom:4px}
 .flash-highlight{outline:3px solid var(--forest);outline-offset:2px;transition:outline-color .3s}
@@ -516,6 +521,7 @@ button{font-family:inherit}
   // ---- dados extras do membro: data de nascimento + unidade ----
   const UNIDADES = ["Lince","Águia","Falcão","Pantera","Tigre"];
   const CLASS_MIN_AGE = {Amigo:10,Companheiro:11,Pesquisador:12,Pioneiro:13,Excursionista:14,Guia:15};
+  const ALL_CLASS_NAMES = Object.keys(CLASS_MIN_AGE).concat(["Líder","Líder Master","Líder Master Avançado"]);
   let memberInfo = {}; // { nome: {birth:"YYYY-MM-DD", unidade:"Lince"} }
   try{ memberInfo = JSON.parse(localStorage.getItem("trilha_member_info") || "{}"); }catch(e){ memberInfo = {}; }
   function persistMemberInfo(){
@@ -543,15 +549,56 @@ button{font-family:inherit}
     const text = exact ? "Classe sugerida: "+exact+" (idade exata)." : "Classe sugerida: "+best+" (idade mínima "+CLASS_MIN_AGE[best]+").";
     return {text:text, classe:best};
   }
+  const MESES_NOMES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  function birthDateSelectHtml(idPrefix, existingValue){
+    let d = "", m = "", y = "";
+    if(existingValue){
+      const parts = existingValue.split("-");
+      if(parts.length === 3){ y = parts[0]; m = String(parseInt(parts[1],10)); d = String(parseInt(parts[2],10)); }
+    }
+    const curYear = new Date().getFullYear();
+    let dayOpts = '<option value="">Dia</option>';
+    for(let i=1;i<=31;i++){ dayOpts += '<option value="'+i+'"'+(String(i)===d?" selected":"")+'>'+i+'</option>'; }
+    let monthOpts = '<option value="">Mês</option>';
+    MESES_NOMES.forEach(function(nome, i){ monthOpts += '<option value="'+(i+1)+'"'+(String(i+1)===m?" selected":"")+'>'+nome+'</option>'; });
+    let yearOpts = '<option value="">Ano</option>';
+    for(let y2=curYear; y2>=curYear-90; y2--){ yearOpts += '<option value="'+y2+'"'+(String(y2)===y?" selected":"")+'>'+y2+'</option>'; }
+    return '<div class="birth-selects">'
+      + '<select id="'+idPrefix+'Day">'+dayOpts+'</select>'
+      + '<select id="'+idPrefix+'Month">'+monthOpts+'</select>'
+      + '<select id="'+idPrefix+'Year">'+yearOpts+'</select>'
+      + '</div>';
+  }
+  function classCheckboxesHtml(idPrefix, selected){
+    const sel = selected || [];
+    return '<div class="class-checks">' + ALL_CLASS_NAMES.map(function(c){
+      const color = CLASS_COLOR[c] || "var(--forest)";
+      return '<label class="class-check"><input type="checkbox" data-cls="'+esc(c)+'" id="'+idPrefix+'_'+slug(c)+'"'+(sel.indexOf(c)>=0?" checked":"")+'><span class="class-dot" style="background:'+color+'"></span>'+esc(c)+'</label>';
+    }).join("") + '</div>';
+  }
+  function getSelectedClasses(idPrefix){
+    return ALL_CLASS_NAMES.filter(function(c){
+      const el = document.getElementById(idPrefix+'_'+slug(c));
+      return el && el.checked;
+    });
+  }
+  function getBirthDateFromSelects(idPrefix){
+    const d = document.getElementById(idPrefix+"Day").value;
+    const m = document.getElementById(idPrefix+"Month").value;
+    const y = document.getElementById(idPrefix+"Year").value;
+    if(!d || !m || !y) return "";
+    return y + "-" + String(m).padStart(2,"0") + "-" + String(d).padStart(2,"0");
+  }
   function memberInfoHtml(name){
     const info = memberInfo[name];
-    if(!info || !info.birth) return '';
+    if(!info) return '';
     const age = calcAge(info.birth);
     const sug = suggestClassForAge(age);
     const parts = [];
     if(info.unidade) parts.push("Unidade "+info.unidade);
     if(age != null) parts.push(age+" anos");
-    if(sug) parts.push(sug.text.replace("Classe sugerida: ","Sugestão: "));
+    if(info.classe) parts.push("Classe atual: "+info.classe);
+    else if(sug) parts.push(sug.text.replace("Classe sugerida: ","Sugestão: "));
     return parts.length ? '<span class="uname">'+esc(parts.join(" · "))+'</span>' : '';
   }
 
@@ -723,7 +770,7 @@ button{font-family:inherit}
       const id = k.slice(sep + 2);
       const found = findItemById(id);
       if(!found) return;
-      out.push({member:member, id:id, title:found.item.title, groupLabel:found.group.label, file:s.file, note:s.note});
+      out.push({member:member, id:id, title:found.item.title, groupLabel:found.group.label, groupKind:found.group.kind, file:s.file, note:s.note});
     });
     return out;
   }
@@ -1707,27 +1754,66 @@ button{font-family:inherit}
     const extra = [];
     if(a.unidade) extra.push("Unidade "+a.unidade);
     if(a.birth){ const age = calcAge(a.birth); if(age != null) extra.push(age+" anos"); }
+    if(a.classes && a.classes.length) extra.push("Classes: "+a.classes.join(", "));
     const extraHtml = extra.length ? ' · '+esc(extra.join(" · ")) : '';
-    return '<div class="staff-item"><span>'+esc(a.name||a.username)+' <span class="uname">('+esc(a.username)+(a.googleEmail?' · '+a.googleEmail:'')+extraHtml+')</span></span><span class="role-chip">'+esc(ROLE_LABELS[a.role]||a.role)+'</span></div>';
+    return '<div class="staff-item"><span>'+esc(a.name||a.username)+' <span class="uname">('+esc(a.username)+(a.googleEmail?' · '+a.googleEmail:'')+extraHtml+')</span></span><span class="role-chip">'+esc(ROLE_LABELS[a.role]||a.role)+'</span><button class="idea-mini-btn" data-edit-staff="'+esc(a.username)+'" style="margin-left:8px">✏️</button></div>';
+  }
+
+  function openEditStaffModal(username){
+    const a = staffAccounts.find(function(s){ return s.username === username; });
+    if(!a) return;
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>Editar cadastro — '+esc(a.name||a.username)+'</h3>';
+    html += '<div class="field"><label>Nome</label><input type="text" id="editStaffName" value="'+esc(a.name||"")+'"></div>';
+    html += '<div class="field"><label>Usuário</label><input type="text" id="editStaffUser" value="'+esc(a.username||"")+'"></div>';
+    html += '<div class="field"><label>Senha</label><input type="text" id="editStaffPass" value="'+esc(a.password||"")+'"></div>';
+    html += '<div class="field"><label>Função</label><select id="editStaffRole">' + Object.keys(ROLE_LABELS).map(function(r){ return '<option value="'+r+'"'+(a.role===r?" selected":"")+'>'+esc(ROLE_LABELS[r])+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="field"><label>E-mail do Google</label><input type="email" id="editStaffGoogleEmail" value="'+esc(a.googleEmail||"")+'"></div>';
+    html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("editStaffBirth", a.birth)+'</div>';
+    html += '<div class="field"><label>Unidade</label><select id="editStaffUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'"'+(a.unidade===u?" selected":"")+'>'+u+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="field"><label>Classes cadastradas (pode marcar mais de uma)</label>'+classCheckboxesHtml("editStaffCls", a.classes||[])+'</div>';
+    html += '<div class="actions-row"><button class="btn primary" id="saveStaffInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("saveStaffInfoBtn").addEventListener("click", function(){
+      const newUsername = document.getElementById("editStaffUser").value.trim();
+      if(!newUsername){ alert("Usuário não pode ficar vazio."); return; }
+      if(newUsername.toLowerCase() !== username.toLowerCase() && staffAccounts.some(function(s){ return s.username.toLowerCase() === newUsername.toLowerCase(); })){
+        alert("Já existe um usuário com esse nome.");
+        return;
+      }
+      a.name = document.getElementById("editStaffName").value.trim() || newUsername;
+      a.username = newUsername;
+      a.password = document.getElementById("editStaffPass").value;
+      a.role = document.getElementById("editStaffRole").value;
+      a.googleEmail = document.getElementById("editStaffGoogleEmail").value.trim() || null;
+      a.birth = getBirthDateFromSelects("editStaffBirth") || null;
+      a.unidade = document.getElementById("editStaffUnidade").value || null;
+      a.classes = getSelectedClasses("editStaffCls");
+      persistStaff();
+      openStaffPanel();
+    });
   }
 
   function openEditMemberModal(name){
     const info = memberInfo[name] || {};
     let html = '<button class="close-x">✕</button>';
     html += '<h3>Editar dados — '+esc(name)+'</h3>';
-    html += '<div class="field"><label>Data de nascimento</label><input type="date" id="editMemberBirth" value="'+esc(info.birth||"")+'"></div>';
+    html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("editMemberBirth", info.birth)+'</div>';
     html += '<div class="field"><label>Unidade</label><select id="editMemberUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'"'+(info.unidade===u?" selected":"")+'>'+u+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="field"><label>Classe atual</label><select id="editMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'"'+(info.classe===c?" selected":"")+'>'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="idea-hint" id="editMemberSuggestion">'+(info.birth ? (function(){ const s = suggestClassForAge(calcAge(info.birth)); return s ? s.text : ""; })() : "")+'</div>';
     html += '<div class="actions-row"><button class="btn primary" id="saveMemberInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
     showModal(html);
     document.getElementById("mCancel").addEventListener("click", closeModal);
-    const birthInput = document.getElementById("editMemberBirth");
-    birthInput.addEventListener("change", function(){
-      const s = suggestClassForAge(calcAge(birthInput.value));
-      document.getElementById("editMemberSuggestion").textContent = s ? s.text : "";
+    ["editMemberBirthDay","editMemberBirthMonth","editMemberBirthYear"].forEach(function(id){
+      document.getElementById(id).addEventListener("change", function(){
+        const s = suggestClassForAge(calcAge(getBirthDateFromSelects("editMemberBirth")));
+        document.getElementById("editMemberSuggestion").textContent = s ? s.text : "";
+      });
     });
     document.getElementById("saveMemberInfoBtn").addEventListener("click", function(){
-      memberInfo[name] = {birth:birthInput.value||null, unidade:document.getElementById("editMemberUnidade").value||null};
+      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, classe:document.getElementById("editMemberClasse").value||null};
       persistMemberInfo();
       openStaffPanel();
     });
@@ -1759,8 +1845,9 @@ button{font-family:inherit}
       ? membros.map(function(m){ return '<div class="staff-item"><span>'+esc(m)+' '+memberInfoHtml(m)+'</span><button class="idea-mini-btn" data-edit-member="'+esc(m)+'">✏️ Editar</button></div>'; }).join("")
       : '<div class="pending-empty">Nenhum membro cadastrado ainda.</div>';
     html += '<div class="field" style="margin-top:12px"><label>Nome do desbravador(a)</label><input type="text" id="newMemberName2" placeholder="Ex.: João Silva"></div>';
-    html += '<div class="field"><label>Data de nascimento</label><input type="date" id="newMemberBirth"></div>';
+    html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("newMemberBirth", null)+'</div>';
     html += '<div class="field"><label>Unidade</label><select id="newMemberUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'">'+u+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="field"><label>Classe atual</label><select id="newMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'">'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="idea-hint" id="newMemberSuggestion"></div>';
     html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="addMemberBtn">Adicionar membro</button></div>';
 
@@ -1772,8 +1859,9 @@ button{font-family:inherit}
       html += '<div class="field"><label>Senha</label><input type="text" id="newStaffPass" placeholder="senha"></div>';
       html += '<div class="field"><label>Função</label><select id="newStaffRole">' + Object.keys(ROLE_LABELS).map(function(r){ return '<option value="'+r+'">'+esc(ROLE_LABELS[r])+'</option>'; }).join("") + '</select></div>';
       html += '<div class="field"><label>E-mail do Google (para liberar acesso às pastas do Drive)</label><input type="email" id="newStaffGoogleEmail" placeholder="nome@gmail.com"></div>';
-      html += '<div class="field"><label>Data de nascimento</label><input type="date" id="newStaffBirth"></div>';
+      html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("newStaffBirth", null)+'</div>';
       html += '<div class="field"><label>Unidade</label><select id="newStaffUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'">'+u+'</option>'; }).join("") + '</select></div>';
+      html += '<div class="field"><label>Classes cadastradas (pode marcar mais de uma)</label>'+classCheckboxesHtml("newStaffCls", [])+'</div>';
       html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="addStaffBtn">Adicionar à diretoria</button></div>';
 
       html += '<h4>Contas de responsáveis (pais/mães)</h4>';
@@ -1809,6 +1897,11 @@ button{font-family:inherit}
         const member = btn.getAttribute("data-member");
         const item = btn.getAttribute("data-item");
         const action = btn.getAttribute("data-action");
+        const found0 = findItemById(item);
+        if(found0 && !canStaffAct({member:member, groupKind:found0.group.kind, groupLabel:found0.group.label})){
+          alert("Você não tem permissão para aprovar/recusar este item (fora da sua unidade ou classe cadastrada).");
+          return;
+        }
         const newStatus = action === "approve" ? "aprovado" : "recusado";
         setStateFor(member, item, {status: newStatus});
         const found = findItemById(item);
@@ -1836,23 +1929,29 @@ button{font-family:inherit}
       const input = document.getElementById("newMemberName2");
       const name = input.value.trim();
       if(!name) return;
-      const birth = document.getElementById("newMemberBirth").value;
+      const birth = getBirthDateFromSelects("newMemberBirth");
       const unidade = document.getElementById("newMemberUnidade").value;
+      const classe = document.getElementById("newMemberClasse").value;
       if(membros.indexOf(name) === -1){ membros.push(name); persistMembros(); }
-      if(birth || unidade){ memberInfo[name] = {birth:birth||null, unidade:unidade||null}; persistMemberInfo(); }
+      if(birth || unidade || classe){ memberInfo[name] = {birth:birth||null, unidade:unidade||null, classe:classe||null}; persistMemberInfo(); }
       renderMemberSelect();
       render();
       openStaffPanel();
     });
-    const memberBirthInput = document.getElementById("newMemberBirth");
-    if(memberBirthInput) memberBirthInput.addEventListener("change", function(){
-      const age = calcAge(memberBirthInput.value);
-      const sug = suggestClassForAge(age);
-      const box = document.getElementById("newMemberSuggestion");
-      if(box) box.textContent = sug ? (age+" anos — "+sug.text) : "";
+    ["newMemberBirthDay","newMemberBirthMonth","newMemberBirthYear"].forEach(function(id){
+      const el = document.getElementById(id);
+      if(el) el.addEventListener("change", function(){
+        const age = calcAge(getBirthDateFromSelects("newMemberBirth"));
+        const sug = suggestClassForAge(age);
+        const box = document.getElementById("newMemberSuggestion");
+        if(box) box.textContent = (sug && age != null) ? (age+" anos — "+sug.text) : "";
+      });
     });
     modalRoot.querySelectorAll("[data-edit-member]").forEach(function(btn){
       btn.addEventListener("click", function(){ openEditMemberModal(btn.getAttribute("data-edit-member")); });
+    });
+    modalRoot.querySelectorAll("[data-edit-staff]").forEach(function(btn){
+      btn.addEventListener("click", function(){ openEditStaffModal(btn.getAttribute("data-edit-staff")); });
     });
 
     if(currentStaff.role === "diretor"){
@@ -1867,9 +1966,10 @@ button{font-family:inherit}
           alert("Já existe um usuário com esse nome.");
           return;
         }
-        const staffBirth = document.getElementById("newStaffBirth").value;
+        const staffBirth = getBirthDateFromSelects("newStaffBirth");
         const staffUnidade = document.getElementById("newStaffUnidade").value;
-        staffAccounts.push({name:name||username, username:username, password:password, role:role, googleEmail:googleEmail||null, birth:staffBirth||null, unidade:staffUnidade||null});
+        const staffClasses = getSelectedClasses("newStaffCls");
+        staffAccounts.push({name:name||username, username:username, password:password, role:role, googleEmail:googleEmail||null, birth:staffBirth||null, unidade:staffUnidade||null, classes:staffClasses});
         persistStaff();
         openStaffPanel();
       });
@@ -2314,10 +2414,27 @@ button{font-family:inherit}
     render();
   }
 
+  // ---- restrição de escopo do conselheiro: só aprova sua unidade e suas classes cadastradas ----
+  function canStaffAct(p){
+    if(!currentStaff) return false;
+    if(currentStaff.role !== "conselheiro") return true; // restrição vale só para conselheiro
+    const info = memberInfo[p.member] || {};
+    if(currentStaff.unidade && info.unidade && currentStaff.unidade !== info.unidade) return false;
+    if(p.groupKind === "classe"){
+      const classes = currentStaff.classes || [];
+      if(classes.indexOf(p.groupLabel) === -1) return false;
+    }
+    return true;
+  }
   function pendingRowHtml(p, idx){
     const thumb = !p.file ? '' : (fileIsImage(p.file)
       ? '<img class="thumb" src="'+p.file.dataUrl+'" data-viewidx="'+idx+'" title="Ver anexo">'
       : '<button class="thumb file-thumb" type="button" data-viewidx="'+idx+'" title="Ver arquivo">📄</button>');
+    const allowed = canStaffAct(p);
+    const actionsHtml = allowed
+      ? '<button class="btn primary" data-action="approve" data-member="'+esc(p.member)+'" data-item="'+p.id+'">Aprovar</button>'
+        + '<button class="btn" data-action="reject" data-member="'+esc(p.member)+'" data-item="'+p.id+'">Recusar</button>'
+      : '<span class="idea-hint" style="margin:0">Fora do seu escopo (unidade/classe)</span>';
     return '<div class="pending-row">'
       + thumb
       + '<div class="body">'
@@ -2325,10 +2442,7 @@ button{font-family:inherit}
         + '<div class="what">'+esc(p.title)+'</div>'
         + '<div class="where">'+esc(p.groupLabel)+(p.file ? ' · '+esc(p.file.name) : '')+'</div>'
         + (p.note ? '<div class="note-text">'+esc(p.note)+'</div>' : '')
-        + '<div class="actions-row">'
-          + '<button class="btn primary" data-action="approve" data-member="'+esc(p.member)+'" data-item="'+p.id+'">Aprovar</button>'
-          + '<button class="btn" data-action="reject" data-member="'+esc(p.member)+'" data-item="'+p.id+'">Recusar</button>'
-        + '</div>'
+        + '<div class="actions-row">'+actionsHtml+'</div>'
       + '</div>'
     + '</div>';
   }
