@@ -521,7 +521,7 @@ button{font-family:inherit}
   // ---- dados extras do membro: data de nascimento + unidade ----
   const UNIDADES = ["Lince","Águia","Falcão","Pantera","Tigre"];
   const CLASS_MIN_AGE = {Amigo:10,Companheiro:11,Pesquisador:12,Pioneiro:13,Excursionista:14,Guia:15};
-  const ALL_CLASS_NAMES = Object.keys(CLASS_MIN_AGE).concat(["Líder","Líder Master","Líder Master Avançado"]);
+  const ALL_CLASS_NAMES = Object.keys(CLASS_MIN_AGE).concat(["Classes Agrupadas","Líder","Líder Master","Líder Master Avançado"]);
   let memberInfo = {}; // { nome: {birth:"YYYY-MM-DD", unidade:"Lince"} }
   try{ memberInfo = JSON.parse(localStorage.getItem("trilha_member_info") || "{}"); }catch(e){ memberInfo = {}; }
   function persistMemberInfo(){
@@ -947,6 +947,7 @@ button{font-family:inherit}
   // cores oficiais das classes regulares (conforme cartão "Especialidades de Todas as Classes")
   const CLASS_COLOR = {
     Amigo:"#0047BB",Companheiro:"#DB0007",Pesquisador:"#008E44",Pioneiro:"#8B8F93",Excursionista:"#6C2383",Guia:"#FFCC00",
+    "Classes Agrupadas":"#4B4B4B",
     "Líder":"#00BFFF","Líder Master":"#FF0000","Líder Master Avançado":"#DAA520"
   };
   function classColorFor(g){ return (g && g.kind === "classe") ? CLASS_COLOR[g.label] : null; }
