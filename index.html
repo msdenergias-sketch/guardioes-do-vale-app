@@ -390,9 +390,11 @@ button{font-family:inherit}
 @media (max-width:860px){
   .app{grid-template-columns:1fr}
   .topbar{flex-wrap:wrap}
-  .kpis{margin-left:0;flex-wrap:wrap;row-gap:8px}
-  .kpi{min-width:56px;padding:6px 8px}
-  .kpi.classe{min-width:80px}
+  .kpis{margin-left:0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%}
+  .kpi{min-width:0;padding:5px 4px}
+  .kpi b{font-size:14px}
+  .kpi small{font-size:8.5px;letter-spacing:.01em}
+  .kpi.classe{min-width:0}
   .brand-badge{width:73px;height:73px}
   .brand h1{font-size:15px}
   .member-picker{flex-wrap:wrap; justify-content:flex-end; row-gap:8px}
