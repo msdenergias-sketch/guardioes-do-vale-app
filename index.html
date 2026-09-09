@@ -305,7 +305,7 @@ button{font-family:inherit}
 .spec-caret{color:var(--muted);font-size:11px;width:10px;flex-shrink:0}
 .spec-code{font-family:"Oswald";color:var(--muted);font-size:12px;flex-shrink:0}
 .spec-name{font-weight:600;flex:1;min-width:0;overflow-wrap:break-word}
-.spec-link{color:var(--forest);text-decoration:none;font-size:12px;font-weight:500;white-space:nowrap}
+.spec-link{color:var(--forest);text-decoration:none;font-size:12px;font-weight:500;white-space:nowrap;background:none;border:none;padding:0;font-family:inherit;cursor:pointer}
 .spec-link:hover{text-decoration:underline}
 .spec-progress{font-size:12px;font-weight:600;padding:3px 10px;border-radius:100px;white-space:nowrap;flex-shrink:0}
 .spec-progress[data-s="none"]{background:var(--status-none-tint);color:var(--status-none)}
@@ -380,6 +380,23 @@ button{font-family:inherit}
 .meeting-status-recusado{background:rgba(255,90,90,.25);color:#ff9d9d}
 .meeting-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
 .meeting-actions .btn{padding:12px 20px;font-size:15px}
+
+@media (max-width:700px){
+  .presentation{padding:64px 16px 24px}
+  .presentation h1{font-size:22px}
+  .presentation .sub{font-size:13px;margin-bottom:18px}
+  .presentation .prank{font-size:14px;gap:10px;padding:10px 0}
+  .presentation .prank .rpos{width:30px}
+  .presentation .prank .rcount{font-size:16px}
+  .presentation .pclose{top:12px;right:12px;width:40px;height:40px;font-size:18px;z-index:5}
+  .meeting-top{position:static;flex-direction:column;align-items:stretch;gap:8px;margin-bottom:20px}
+  .meeting-select{width:100%;font-size:14px}
+  .meeting-count{font-size:13px;text-align:center}
+  .meeting-group{font-size:12px}
+  .meeting-title{font-size:20px;margin:0 0 14px}
+  .meeting-status{font-size:12px;padding:5px 12px;margin-bottom:20px}
+  .meeting-actions .btn{padding:10px 14px;font-size:13px;flex:1;min-width:100px}
+}
 
 @media print{
   body *{visibility:hidden}
@@ -1246,6 +1263,8 @@ button{font-family:inherit}
     if(expanded){ spec.items.forEach(function(it){ inner += rowHtml(it, g.kind); }); }
     const wikiHtml = spec.wiki ? '<a href="'+spec.wiki+'" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()">Ver na MDA Wiki ↗</a>' : '';
     const driveHtml = (spec.driveUrl && currentStaff) ? '<a href="'+spec.driveUrl+'" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()">📁 Pasta (Drive) ↗</a>' : '';
+    const attachAllHtml = currentMember ? '<button type="button" class="spec-link" data-spec-attach="'+esc(spec.code)+'" onclick="event.stopPropagation()">📎 Anexar 1 arquivo p/ todos os requisitos</button><input type="file" accept="image/*,.pdf,.doc,.docx" data-spec-attach-input="'+esc(spec.code)+'" style="display:none">' : '';
+    const bulkAllHtml = currentStaff ? '<button type="button" class="spec-link" data-spec-bulk="'+esc(spec.code)+'" onclick="event.stopPropagation()">👥 Marcar/aprovar todos os requisitos</button>' : '';
     return '<div class="spec-block">'
       + '<div class="spec-head" data-spec-toggle="'+esc(spec.code)+'">'
         + '<div class="spec-head-main">'
@@ -1254,10 +1273,15 @@ button{font-family:inherit}
           + '<span class="spec-name">'+esc(spec.name)+'</span>'
           + '<span class="spec-progress" data-s="'+(done===total?"aprovado":(done>0?"pendente":"none"))+'">'+done+'/'+total+' ('+pct+'%)</span>'
         + '</div>'
-        + (wikiHtml || driveHtml ? '<div class="spec-head-meta">'+wikiHtml+driveHtml+'</div>' : '')
+        + (wikiHtml || driveHtml || attachAllHtml || bulkAllHtml ? '<div class="spec-head-meta">'+wikiHtml+driveHtml+attachAllHtml+bulkAllHtml+'</div>' : '')
       + '</div>'
       + (expanded ? '<div class="spec-items">'+inner+'</div>' : '')
     + '</div>';
+  }
+  function specItemsFor(specCode){
+    const out = [];
+    espGroups.forEach(function(g){ g.items.forEach(function(it){ if(it.specialtyCode === specCode) out.push({item:it, group:g}); }); });
+    return out;
   }
 
   function rowHtml(it, kind){
@@ -1314,6 +1338,35 @@ button{font-family:inherit}
         const code = head.getAttribute("data-spec-toggle");
         if(expandedSpecs.has(code)) expandedSpecs.delete(code); else expandedSpecs.add(code);
         renderList();
+      });
+    });
+    listEl.querySelectorAll("[data-spec-attach]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        if(!requireMember()) return;
+        const code = btn.getAttribute("data-spec-attach");
+        const inp = listEl.querySelector('[data-spec-attach-input="'+code+'"]');
+        if(inp) inp.click();
+      });
+    });
+    listEl.querySelectorAll("[data-spec-attach-input]").forEach(function(inp){
+      inp.addEventListener("change", function(){
+        const code = inp.getAttribute("data-spec-attach-input");
+        const f = inp.files[0];
+        if(!f) return;
+        readFile(f, function(fileObj){
+          if(fileObj.tooLarge){
+            alert("Esse arquivo é muito grande para anexar aqui (limite de ~700KB para documentos/PDFs). Tente uma foto do documento em vez do arquivo original, ou um arquivo menor.");
+            return;
+          }
+          const rows = specItemsFor(code);
+          rows.forEach(function(r){ setState(r.item.id, {file: fileObj}); });
+          render();
+        });
+      });
+    });
+    listEl.querySelectorAll("[data-spec-bulk]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        openSpecBulkModal(btn.getAttribute("data-spec-bulk"));
       });
     });
     listEl.querySelectorAll("[data-mandatory]").forEach(function(btn){
@@ -1735,6 +1788,63 @@ button{font-family:inherit}
       document.getElementById("mCancel").addEventListener("click", closeModal);
     });
   }
+  function openSpecBulkModal(specCode){
+    const rows = specItemsFor(specCode);
+    if(!rows.length) return;
+    const specName = rows[0].item.specialtyName || specCode;
+    const groupLabel = rows[0].group.label;
+    if(!membros.length){ alert("Nenhum desbravador cadastrado ainda."); return; }
+    const allowed = membros.filter(function(m){
+      return canStaffAct({member:m, groupKind:"esp", groupLabel:groupLabel});
+    });
+    if(!allowed.length){ alert("Nenhum desbravador dentro da sua unidade/classe cadastrada."); return; }
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>Marcar todos os requisitos da especialidade</h3>';
+    html += '<p><b>'+esc(specCode)+' — '+esc(specName)+'</b> ('+rows.length+' requisitos)</p>';
+    html += '<div class="field"><label>Marcar como</label><select id="specBulkStatus"><option value="aprovado">Aprovado (já fiz/conferi pessoalmente, todos os requisitos)</option><option value="pendente">Aguardando aprovação</option><option value="none">Desfazer / reabrir (volta tudo para não iniciado)</option></select></div>';
+    html += '<div class="field"><label>Desbravadores <button type="button" class="linklike" id="specBulkAll">marcar todos</button> · <button type="button" class="linklike" id="specBulkNone">limpar</button></label>';
+    html += '<div class="class-checks">' + allowed.map(function(m){
+      return '<label class="class-check"><input type="checkbox" data-spec-bulk-member="'+esc(m)+'"><span>'+esc(m)+'</span></label>';
+    }).join("") + '</div></div>';
+    html += '<div class="actions-row"><button class="btn primary" id="applySpecBulkBtn">Aplicar</button><button class="btn" id="mCancel">Cancelar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("specBulkAll").addEventListener("click", function(){
+      modalRoot.querySelectorAll("[data-spec-bulk-member]").forEach(function(cb){ cb.checked = true; });
+    });
+    document.getElementById("specBulkNone").addEventListener("click", function(){
+      modalRoot.querySelectorAll("[data-spec-bulk-member]").forEach(function(cb){ cb.checked = false; });
+    });
+    document.getElementById("applySpecBulkBtn").addEventListener("click", function(){
+      const chosenStatus = document.getElementById("specBulkStatus").value;
+      const selectedMembers = Array.from(modalRoot.querySelectorAll("[data-spec-bulk-member]")).filter(function(cb){ return cb.checked; }).map(function(cb){ return cb.getAttribute("data-spec-bulk-member"); });
+      if(!selectedMembers.length){ alert("Selecione ao menos um desbravador."); return; }
+      selectedMembers.forEach(function(m){
+        rows.forEach(function(r){
+          setStateFor(m, r.item.id, {status: chosenStatus});
+          if(chosenStatus === "aprovado"){
+            persistLogEntry({
+              member: m,
+              itemId: r.item.id,
+              itemTitle: r.item.title,
+              groupLabel: groupLabel,
+              action: "aprovado",
+              by: currentStaff ? (currentStaff.name || currentStaff.username) : "—",
+              at: Date.now()
+            });
+          }
+        });
+      });
+      render();
+      let rhtml = '<button class="close-x">✕</button>';
+      rhtml += '<h3>Marcado com sucesso</h3>';
+      const chosenLabel = chosenStatus==="aprovado" ? "Aprovado" : (chosenStatus==="pendente" ? "Aguardando aprovação" : "Não iniciado (reaberto)");
+      rhtml += '<p>'+selectedMembers.length+' desbravador(es) marcado(s) como "'+chosenLabel+'" em todos os '+rows.length+' requisitos de <b>'+esc(specName)+'</b>.</p>';
+      rhtml += '<div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>';
+      showModal(rhtml);
+      document.getElementById("mCancel").addEventListener("click", closeModal);
+    });
+  }
   function openIdeasModal(itemId){
     const found = findGroupForItem(itemId);
     if(!found) return;
@@ -1917,14 +2027,16 @@ button{font-family:inherit}
     try{ saved = localStorage.getItem("trilha_theme"); }catch(e){}
     if(saved === "light" || saved === "dark") document.documentElement.setAttribute("data-theme", saved);
     const themeBtn = document.getElementById("themeBtn");
-    themeBtn.addEventListener("click", function(){
-      const cur = document.documentElement.getAttribute("data-theme");
-      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-      const effectiveCur = cur || (prefersDark ? "dark" : "light");
-      const next = effectiveCur === "dark" ? "light" : "dark";
-      document.documentElement.setAttribute("data-theme", next);
-      try{ localStorage.setItem("trilha_theme", next); }catch(e){}
-    });
+    if(themeBtn){
+      themeBtn.addEventListener("click", function(){
+        const cur = document.documentElement.getAttribute("data-theme");
+        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const effectiveCur = cur || (prefersDark ? "dark" : "light");
+        const next = effectiveCur === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try{ localStorage.setItem("trilha_theme", next); }catch(e){}
+      });
+    }
   })();
 
   // ---- member picker ----
