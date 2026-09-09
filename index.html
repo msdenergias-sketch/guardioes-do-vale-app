@@ -704,6 +704,25 @@ button{font-family:inherit}
     html += options.map(function(n){ return '<option value="'+esc(n)+'"'+(n===selected?" selected":"")+'>'+esc(n)+'</option>'; }).join("");
     return html;
   }
+  const AVATAR_COLORS = ["#8a5b2e","#2f4f3a","#4a6fa5","#a5504a","#6a4a9c","#3a8a7a","#a58a2e"];
+  function initials(name){
+    const parts = String(name||"").trim().split(/\s+/);
+    const a = parts[0] ? parts[0][0] : "";
+    const b = parts.length>1 ? parts[parts.length-1][0] : "";
+    return (a+b).toUpperCase() || "?";
+  }
+  function avatarColorFor(name){
+    let h = 0;
+    for(let i=0;i<name.length;i++) h = (h*31 + name.charCodeAt(i)) >>> 0;
+    return AVATAR_COLORS[h % AVATAR_COLORS.length];
+  }
+  function avatarHtml(name, info, size){
+    const s = size || 32;
+    if(info && info.avatar){
+      return '<img src="'+info.avatar+'" alt="" style="width:'+s+'px;height:'+s+'px;border-radius:50%;object-fit:cover;flex-shrink:0">';
+    }
+    return '<div style="width:'+s+'px;height:'+s+'px;border-radius:50%;background:'+avatarColorFor(name)+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:'+Math.round(s*0.4)+'px;flex-shrink:0">'+esc(initials(name))+'</div>';
+  }
   function memberInfoHtml(name){
     const info = memberInfo[name];
     if(!info) return '';
@@ -2443,6 +2462,12 @@ button{font-family:inherit}
     const info = memberInfo[name] || {};
     let html = '<button class="close-x">✕</button>';
     html += '<h3>Editar dados — '+esc(name)+'</h3>';
+    html += '<div class="field" style="display:flex;align-items:center;gap:12px">'
+      + '<div id="editMemberAvatarPreview">'+avatarHtml(name, info, 56)+'</div>'
+      + '<div><button class="btn" id="editMemberAvatarBtn" type="button">📷 '+(info.avatar?"Trocar foto":"Adicionar foto")+'</button> '
+      + (info.avatar ? '<button class="btn" id="editMemberAvatarRemove" type="button">🗑️ Remover</button>' : '')
+      + '<input type="file" accept="image/*" id="editMemberAvatarInput" hidden></div>'
+    + '</div>';
     html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("editMemberBirth", info.birth)+'</div>';
     html += '<div class="field"><label>Unidade</label><select id="editMemberUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'"'+(info.unidade===u?" selected":"")+'>'+u+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Cargo na unidade</label><select id="editMemberCargo"><option value="">Selecione…</option>' + CARGO_UNIDADE.map(function(c){ return '<option value="'+c+'"'+(info.cargoUnidade===c?" selected":"")+'>'+c+'</option>'; }).join("") + '</select></div>';
@@ -2458,7 +2483,23 @@ button{font-family:inherit}
     html += '<div class="idea-hint" id="editMemberSuggestion">'+(info.birth ? (function(){ const s = suggestClassForAge(calcAge(info.birth)); return s ? s.text : ""; })() : "")+'</div>';
     html += '<div class="actions-row"><button class="btn primary" id="saveMemberInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
     showModal(html);
+    let avatarData = info.avatar || null;
     document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("editMemberAvatarBtn").addEventListener("click", function(){ document.getElementById("editMemberAvatarInput").click(); });
+    document.getElementById("editMemberAvatarInput").addEventListener("change", function(e){
+      const file = e.target.files && e.target.files[0];
+      if(!file) return;
+      readFile(file, function(res){
+        if(!res.isImage){ alert("Escolha um arquivo de imagem."); return; }
+        avatarData = res.dataUrl;
+        document.getElementById("editMemberAvatarPreview").innerHTML = avatarHtml(name, {avatar:avatarData}, 56);
+      });
+    });
+    const removeBtn = document.getElementById("editMemberAvatarRemove");
+    if(removeBtn) removeBtn.addEventListener("click", function(){
+      avatarData = null;
+      document.getElementById("editMemberAvatarPreview").innerHTML = avatarHtml(name, {}, 56);
+    });
     ["editMemberBirthDay","editMemberBirthMonth","editMemberBirthYear"].forEach(function(id){
       document.getElementById(id).addEventListener("change", function(){
         const s = suggestClassForAge(calcAge(getBirthDateFromSelects("editMemberBirth")));
@@ -2474,7 +2515,7 @@ button{font-family:inherit}
     });
     document.getElementById("saveMemberInfoBtn").addEventListener("click", function(){
       const batismoVal = document.getElementById("editMemberBatismo").value;
-      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, genero:document.getElementById("editMemberGenero").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, responsavelAssoc:document.getElementById("editMemberRespAssoc").value.trim()||null, conselheiro:document.getElementById("editMemberConselheiro").value.trim()||null, conselheiroAssoc:document.getElementById("editMemberConselheiroAssoc").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
+      memberInfo[name] = {avatar:avatarData||null, birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, genero:document.getElementById("editMemberGenero").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, responsavelAssoc:document.getElementById("editMemberRespAssoc").value.trim()||null, conselheiro:document.getElementById("editMemberConselheiro").value.trim()||null, conselheiroAssoc:document.getElementById("editMemberConselheiroAssoc").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
       persistMemberInfo();
       openStaffPanel();
     });
@@ -2799,7 +2840,7 @@ button{font-family:inherit}
           const expanded = clubPanelState.expanded.has(r.name);
           const barColor = r.pct >= 70 ? "var(--status-done)" : (r.pct >= 35 ? "var(--status-doing)" : "var(--status-none)");
           let block = '<div class="progress-row" data-cp-row="'+esc(r.name)+'" style="cursor:pointer">'
-            + '<div class="plabel"><span>'+esc(r.name)+' <small style="color:var(--muted);font-weight:400">'+(r.classe?esc(r.classe):"sem classe")+(r.unidade?' · '+esc(r.unidade):'')+'</small></span><b>'+r.done+'/'+r.total+' ('+r.pct+'%)</b></div>'
+            + '<div class="plabel" style="display:flex;align-items:center;gap:8px">'+avatarHtml(r.name, memberInfo[r.name], 28)+'<span>'+esc(r.name)+' <small style="color:var(--muted);font-weight:400">'+(r.classe?esc(r.classe):"sem classe")+(r.unidade?' · '+esc(r.unidade):'')+'</small></span><b style="margin-left:auto">'+r.done+'/'+r.total+' ('+r.pct+'%)</b></div>'
             + '<div class="ptrack"><div class="pfill" style="width:'+r.pct+'%;background:'+barColor+'"></div></div>'
           + '</div>';
           if(expanded){
@@ -3416,7 +3457,7 @@ button{font-family:inherit}
     html += '<div class="sub">Clube Guardiões do Vale — aprovações na classe do ano — '+new Date().toLocaleDateString("pt-BR")+'</div>';
     html += memberStats.length ? memberStats.map(function(m,i){
       const sub = m.className ? esc(m.className) : 'sem classe definida';
-      return '<div class="prank"><span class="rpos">'+(i+1)+'º</span><span class="rname">'+esc(m.name)+' <small style="opacity:.7;font-size:14px">('+sub+')</small></span><span class="rcount">'+m.done+' aprovações</span></div>';
+      return '<div class="prank" style="display:flex;align-items:center;gap:10px"><span class="rpos">'+(i+1)+'º</span>'+avatarHtml(m.name, memberInfo[m.name], 34)+'<span class="rname">'+esc(m.name)+' <small style="opacity:.7;font-size:14px">('+sub+')</small></span><span class="rcount">'+m.done+' aprovações</span></div>';
     }).join("") : '<div class="prank"><span class="rname">Nenhum membro cadastrado ainda.</span></div>';
     overlay.innerHTML = html;
     document.body.appendChild(overlay);
