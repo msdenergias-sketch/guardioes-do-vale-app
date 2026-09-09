@@ -996,6 +996,7 @@ button{font-family:inherit}
   let activeFilter = null; // group id or null (all)
   let query = "";
   const expandedSpecs = new Set(); // codigos de especialidade expandidos (itemizadas)
+  const clubPanelState = { unidade:"", classe:"", expanded:new Set() };
   let collapsed = {};
   try{ collapsed = JSON.parse(localStorage.getItem("trilha_nav_collapsed") || "{}"); }catch(e){ collapsed = {}; }
   function toggleCollapse(key){
@@ -2279,6 +2280,7 @@ button{font-family:inherit}
 
     html += '<div class="actions-row" style="justify-content:flex-start;flex-wrap:wrap;gap:8px">'
       + '<button class="btn primary" id="openDashboardBtn">📊 Dashboard da Diretoria</button>'
+      + '<button class="btn primary" id="openClubPanelBtn">📋 Painel do Clube</button>'
       + '<button class="btn" id="openPresentationBtn">🖥 Modo Apresentação</button>'
       + '<button class="btn" id="exportClubPdfBtn">📄 Relatório do Clube (PDF)</button>'
       + '</div>';
@@ -2511,6 +2513,7 @@ button{font-family:inherit}
     }
 
     document.getElementById("openDashboardBtn").addEventListener("click", function(){ closeModal(); openDashboard(); });
+    document.getElementById("openClubPanelBtn").addEventListener("click", function(){ closeModal(); openClubPanel(); });
     document.getElementById("openPresentationBtn").addEventListener("click", function(){ closeModal(); openPresentation(); });
     document.getElementById("exportClubPdfBtn").addEventListener("click", exportClubPdf);
   }
@@ -2522,6 +2525,77 @@ button{font-family:inherit}
       + '<div class="lwhat">'+esc(entry.member)+' · '+esc(entry.itemTitle)+' <span class="'+(isOk?"lok":"lno")+'">'+(isOk?"✓ aprovado":"✕ recusado")+'</span></div>'
       + '<div class="lmeta">'+esc(entry.groupLabel||"")+' · por '+esc(entry.by||"—")+' · '+when+'</div>'
     + '</div>';
+  }
+
+  // ---- painel do clube: membros x tarefas cumpridas/pendentes/faltando ----
+  function openClubPanel(){
+    function computeRows(){
+      return membros.map(function(m){
+        const info = memberInfo[m] || {};
+        const p = classYearProgress(m);
+        const pct = p.total ? Math.round((p.done/p.total)*100) : 0;
+        let missing = [];
+        if(info.classe){
+          const g = clsGroups.find(function(x){ return x.label === info.classe; });
+          if(g){
+            g.items.forEach(function(it){
+              if(missing.length >= 3) return;
+              const s = getStateFor(m, it.id).status || "none";
+              if(s !== "aprovado") missing.push(it.title);
+            });
+          }
+        }
+        return {name:m, unidade:info.unidade||null, classe:info.classe||null, done:p.done, doing:p.doing, total:p.total, pct:pct, missing:missing};
+      }).filter(function(r){
+        if(clubPanelState.unidade && r.unidade !== clubPanelState.unidade) return false;
+        if(clubPanelState.classe && r.classe !== clubPanelState.classe) return false;
+        return true;
+      }).sort(function(a,b){ return (a.pct - b.pct) || a.name.localeCompare(b.name); });
+    }
+    function render(){
+      const rows = computeRows();
+      let html = '<button class="close-x">✕</button>';
+      html += '<h3>Painel do Clube</h3>';
+      html += '<p class="idea-hint" style="margin-top:-4px">Ordenado do mais atrasado para o mais adiantado, considerando a classe do ano de cada um. Clique num desbravador para ver o que falta.</p>';
+      html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">';
+      html += '<select id="cpUnidade"><option value="">Todas as unidades</option>' + UNIDADES.map(function(u){ return '<option value="'+esc(u)+'"'+(clubPanelState.unidade===u?" selected":"")+'>'+esc(u)+'</option>'; }).join("") + '</select>';
+      const classeOptions = clsGroups.map(function(g){ return g.label; });
+      html += '<select id="cpClasse"><option value="">Todas as classes</option>' + classeOptions.map(function(c){ return '<option value="'+esc(c)+'"'+(clubPanelState.classe===c?" selected":"")+'>'+esc(c)+'</option>'; }).join("") + '</select>';
+      html += '</div>';
+      if(!rows.length){
+        html += '<div class="pending-empty">Nenhum desbravador encontrado com esse filtro.</div>';
+      } else {
+        html += rows.map(function(r){
+          const expanded = clubPanelState.expanded.has(r.name);
+          const barColor = r.pct >= 70 ? "var(--status-done)" : (r.pct >= 35 ? "var(--status-doing)" : "var(--status-none)");
+          let block = '<div class="progress-row" data-cp-row="'+esc(r.name)+'" style="cursor:pointer">'
+            + '<div class="plabel"><span>'+esc(r.name)+' <small style="color:var(--muted);font-weight:400">'+(r.classe?esc(r.classe):"sem classe")+(r.unidade?' · '+esc(r.unidade):'')+'</small></span><b>'+r.done+'/'+r.total+' ('+r.pct+'%)</b></div>'
+            + '<div class="ptrack"><div class="pfill" style="width:'+r.pct+'%;background:'+barColor+'"></div></div>'
+          + '</div>';
+          if(expanded){
+            const bits = [];
+            if(r.doing>0) bits.push(r.doing+' requisito(s) aguardando aprovação');
+            if(r.missing.length) bits.push('Próximos a fazer: '+r.missing.map(function(t){return esc(t);}).join(" · "));
+            if(!bits.length) bits.push(r.total ? 'Sem pendências no momento — só falta aprovar o que já foi enviado.' : 'Sem classe do ano definida para este desbravador.');
+            block += '<div class="idea-hint" style="margin:2px 0 12px 4px">'+bits.join(" · ")+'</div>';
+          }
+          return block;
+        }).join("");
+      }
+      modalRoot.innerHTML = '<div class="modal-backdrop" id="modalBackdrop"><div class="modal wide">'+html+'</div></div>';
+      document.getElementById("modalBackdrop").addEventListener("click", function(e){ if(e.target.id==="modalBackdrop") closeModal(); });
+      modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+      document.getElementById("cpUnidade").addEventListener("change", function(){ clubPanelState.unidade = this.value; render(); });
+      document.getElementById("cpClasse").addEventListener("change", function(){ clubPanelState.classe = this.value; render(); });
+      modalRoot.querySelectorAll("[data-cp-row]").forEach(function(el){
+        el.addEventListener("click", function(){
+          const name = el.getAttribute("data-cp-row");
+          if(clubPanelState.expanded.has(name)) clubPanelState.expanded.delete(name); else clubPanelState.expanded.add(name);
+          render();
+        });
+      });
+    }
+    render();
   }
 
   // ---- dashboard da diretoria (agregado de todos os membros) ----
