@@ -689,12 +689,13 @@ button{font-family:inherit}
     const age = calcAge(info.birth);
     const sug = suggestClassForAge(age);
     const parts = [];
-    if(info.unidade) parts.push("Unidade "+info.unidade);
+    if(info.unidade) parts.push("Unidade "+info.unidade+(info.cargoUnidade?" ("+info.cargoUnidade+")":""));
     if(age != null) parts.push(age+" anos");
     if(info.classe) parts.push("Classe atual: "+info.classe);
     else if(sug) parts.push(sug.text.replace("Classe sugerida: ","Sugestão: "));
     if(info.concluidas && info.concluidas.length) parts.push("Concluídas: "+info.concluidas.join(", "));
     if(info.responsavel) parts.push("Instrutor responsável: "+info.responsavel);
+    if(info.conselheiro) parts.push("Conselheiro(a): "+info.conselheiro);
     if(info.batismo === true) parts.push("Batizado(a)");
     else if(info.batismo === false) parts.push("Não batizado(a)");
     return parts.length ? '<span class="uname">'+esc(parts.join(" · "))+'</span>' : '';
