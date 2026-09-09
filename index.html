@@ -962,7 +962,13 @@ button{font-family:inherit}
   function getState(id){ return getStateFor(currentMember, id); }
   function setStateFor(member, id, patch){
     const k = stateKey(member, id);
-    state[k] = Object.assign({}, getStateFor(member,id), patch);
+    const prev = getStateFor(member,id);
+    if(patch.status === "pendente" && prev.status !== "pendente"){
+      patch = Object.assign({}, patch, {pendingSince: Date.now()});
+    } else if(patch.status && patch.status !== "pendente"){
+      patch = Object.assign({}, patch, {pendingSince: null});
+    }
+    state[k] = Object.assign({}, prev, patch);
     scheduleWrite(k, member, id);
   }
   function setState(id, patch){ setStateFor(currentMember, id, patch); }
@@ -989,9 +995,9 @@ button{font-family:inherit}
       const id = k.slice(sep + 2);
       const found = findItemById(id);
       if(!found) return;
-      out.push({member:member, id:id, title:found.item.title, groupLabel:found.group.label, groupKind:found.group.kind, file:s.file, note:s.note});
+      out.push({member:member, id:id, title:found.item.title, groupLabel:found.group.label, groupKind:found.group.kind, file:s.file, note:s.note, pendingSince:s.pendingSince||null});
     });
-    return out;
+    return out.sort(function(a,b){ return (a.pendingSince||Infinity) - (b.pendingSince||Infinity); });
   }
 
   function scheduleWrite(key, member, id){
@@ -999,7 +1005,7 @@ button{font-family:inherit}
     clearTimeout(pendingWrites.get(key));
     pendingWrites.set(key, setTimeout(function(){
       const s = getStateFor(member, id);
-      db.collection("trilha_status").doc(key).set({member:member, itemId:id, status:s.status, file:s.file, note:s.note||null}).catch(function(){});
+      db.collection("trilha_status").doc(key).set({member:member, itemId:id, status:s.status, file:s.file, note:s.note||null, pendingSince:s.pendingSince||null}).catch(function(){});
     }, 350));
   }
 
@@ -1012,7 +1018,7 @@ button{font-family:inherit}
       docs.forEach(function(d){
         const data = d.data || d;
         const key = d.id || d.docId;
-        if(key) state[key] = {status:(data.status||"none"), file:(data.file||null), note:(data.note||null)};
+        if(key) state[key] = {status:(data.status||"none"), file:(data.file||null), note:(data.note||null), pendingSince:(data.pendingSince||null)};
       });
       try{
         const mdoc = await db.collection("trilha_membros").doc("list").get();
@@ -2564,6 +2570,7 @@ button{font-family:inherit}
       + '<button class="btn" id="openChamadaBtn">📣 Chamada da Unidade</button>'
       + '<button class="btn" id="openUnitRankingBtn">🏆 Ranking das Unidades</button>'
       + '<button class="btn" id="exportBackupBtn">💾 Backup completo (JSON)</button>'
+      + (currentStaff.role === "diretor" ? '<button class="btn" id="restoreBackupBtn">📤 Restaurar backup</button><input type="file" accept="application/json" id="restoreBackupInput" hidden>' : '')
       + '</div>';
 
     html += '<h4>Pendentes de aprovação ('+pendings.length+')</h4>';
@@ -2819,6 +2826,43 @@ button{font-family:inherit}
     document.getElementById("openChamadaBtn").addEventListener("click", function(){ closeModal(); openChamada(); });
     document.getElementById("openUnitRankingBtn").addEventListener("click", function(){ closeModal(); openUnitRanking(); });
     document.getElementById("exportBackupBtn").addEventListener("click", exportFullBackup);
+    const restoreBtn = document.getElementById("restoreBackupBtn");
+    if(restoreBtn){
+      restoreBtn.addEventListener("click", function(){ document.getElementById("restoreBackupInput").click(); });
+      document.getElementById("restoreBackupInput").addEventListener("change", function(e){
+        const file = e.target.files && e.target.files[0];
+        if(file) importFullBackup(file);
+      });
+    }
+  }
+  function importFullBackup(file){
+    const reader = new FileReader();
+    reader.onload = function(){
+      let data;
+      try{ data = JSON.parse(reader.result); }catch(e){ alert("Arquivo inválido — não parece ser um backup deste app."); return; }
+      const when = data.exportedAt ? new Date(data.exportedAt).toLocaleString("pt-BR") : "data desconhecida";
+      if(!confirm("Isso vai SUBSTITUIR todos os dados atuais do clube (cadastros, progresso, histórico, chamadas) pelos dados deste backup, gerado em "+when+". Essa ação não pode ser desfeita. Deseja continuar?")) return;
+      if(Array.isArray(data.membros)) membros = data.membros;
+      if(data.memberInfo) memberInfo = data.memberInfo;
+      if(data.state){ Object.keys(state).forEach(function(k){ delete state[k]; }); Object.assign(state, data.state); }
+      if(Array.isArray(data.staffAccounts)) staffAccounts = data.staffAccounts;
+      if(Array.isArray(data.parentAccounts)) parentAccounts = data.parentAccounts;
+      if(Array.isArray(data.logEntries)) logEntries = data.logEntries;
+      if(data.clubIdeas) clubIdeas = data.clubIdeas;
+      if(data.usedIdeas) usedIdeas = data.usedIdeas;
+      if(data.chamadas) chamadas = data.chamadas;
+      persistMembros(); persistMemberInfo(); persistStaff(); persistParents(); persistClubIdeas(); persistUsedIdeas();
+      if(db){
+        Object.keys(state).forEach(function(k){ db.collection("trilha_status").doc(k).set(state[k]).catch(function(){}); });
+        logEntries.forEach(function(e){ if(e.id) db.collection("trilha_log").doc(e.id).set(e).catch(function(){}); });
+        Object.keys(chamadas).forEach(function(id){ db.collection("trilha_chamadas").doc(id).set(chamadas[id]).catch(function(){}); });
+      }
+      renderMemberSelect();
+      render();
+      alert("Backup restaurado com sucesso!");
+      openStaffPanel();
+    };
+    reader.readAsText(file);
   }
   function openUnitRanking(){
     const rows = UNIDADES.map(function(u){
@@ -3184,6 +3228,10 @@ button{font-family:inherit}
     const expanded = new Set();
     if(members.length) expanded.add(members[0]);
     let fotoData = (existing && existing.foto) || null;
+    let secretarioDraft = (existing && existing.secretario) || "";
+    let observacoesDraft = (existing && existing.observacoes) || "";
+    const membrosDraft = {};
+    members.forEach(function(m){ membrosDraft[m] = Object.assign({}, (existing && existing.membros && existing.membros[m]) || {}); });
     function render(){
       let html = '<button class="close-x">✕</button>';
       html += '<h3>📣 Chamada — '+esc(unidade)+' · '+esc(data)+'</h3>';
@@ -3202,12 +3250,13 @@ button{font-family:inherit}
         + (fotoData ? '<button class="btn" id="chFotoRemove" type="button">🗑️ Remover</button>' : '')
         + '<input type="file" accept="image/*" id="chFotoInput" hidden></div>'
       + '</div>';
+      html += '<div class="field"><label>Secretário(a) que preencheu esta chamada</label><input type="text" id="chSecretario" value="'+esc(secretarioDraft)+'" placeholder="Nome de quem está preenchendo"></div>';
       let unitTotal = 0;
       html += '<div class="chamada-cards">';
       html += members.map(function(m){
         const info = memberInfo[m] || {};
         const cargo = info.cargoUnidade || "Desbravador(a)";
-        const saved = (existing && existing.membros && existing.membros[m]) || {};
+        const saved = membrosDraft[m] || {};
         const total = chamadaRowTotal(saved);
         unitTotal += total;
         const isOpen = expanded.has(m);
@@ -3242,6 +3291,7 @@ button{font-family:inherit}
         return card;
       }).join("");
       html += '</div>';
+      html += '<div class="field"><label>Observações da reunião (visitantes, ocorrências, avisos)</label><textarea id="chObservacoes" placeholder="Escreva aqui observações gerais desta reunião…">'+esc(observacoesDraft)+'</textarea></div>';
       html += '<p class="idea-hint">Pontuação máxima por desbravador: '+CHAMADA_MAX_TOTAL+' pts (item 7 é descritivo, sem pontos). Total da unidade nesta chamada: <b id="chUnitTotal">'+unitTotal+'</b> pts.</p>';
       html += '<div class="actions-row"><button class="btn primary" id="chSaveBtn">💾 Salvar chamada</button><button class="btn" id="mCancel">Fechar</button></div>';
       showModal(html);
@@ -3259,6 +3309,8 @@ button{font-family:inherit}
       });
       const fotoRemoveBtn = document.getElementById("chFotoRemove");
       if(fotoRemoveBtn) fotoRemoveBtn.addEventListener("click", function(){ fotoData = null; render(); });
+      document.getElementById("chSecretario").addEventListener("input", function(){ secretarioDraft = this.value; });
+      document.getElementById("chObservacoes").addEventListener("input", function(){ observacoesDraft = this.value; });
       modalRoot.querySelectorAll("[data-ch-toggle]").forEach(function(el){
         el.addEventListener("click", function(){
           const m = el.getAttribute("data-ch-toggle");
@@ -3266,23 +3318,17 @@ button{font-family:inherit}
           render();
         });
       });
-      function readRow(m){
-        const body = modalRoot.querySelector('[data-ch-member="'+CSS.escape(m)+'"].chamada-card-body');
-        const resp = {};
-        if(body) body.querySelectorAll("[data-ch-field]").forEach(function(f){ resp[f.getAttribute("data-ch-field")] = f.value; });
-        else { const saved = (existing && existing.membros && existing.membros[m]) || {}; return saved; }
-        resp.classeEsp = classeEspSnapshot(m);
-        return resp;
-      }
       modalRoot.querySelectorAll("[data-ch-field]").forEach(function(el){
         el.addEventListener("input", function(){
           const m = el.getAttribute("data-ch-member");
-          const resp = readRow(m);
-          const total = chamadaRowTotal(resp);
+          const key = el.getAttribute("data-ch-field");
+          membrosDraft[m] = membrosDraft[m] || {};
+          membrosDraft[m][key] = el.value;
+          const total = chamadaRowTotal(membrosDraft[m]);
           const totEl = modalRoot.querySelector('[data-ch-total="'+CSS.escape(m)+'"]');
           if(totEl) totEl.textContent = total+' pts';
           let sum = 0;
-          members.forEach(function(mm){ sum += chamadaRowTotal(readRow(mm)); });
+          members.forEach(function(mm){ sum += chamadaRowTotal(membrosDraft[mm]||{}); });
           const unitEl = document.getElementById("chUnitTotal");
           if(unitEl) unitEl.textContent = sum;
         });
@@ -3291,13 +3337,15 @@ button{font-family:inherit}
         const membrosData = {};
         let unitTotalNow = 0;
         members.forEach(function(m){
-          const resp = readRow(m);
+          const resp = Object.assign({}, membrosDraft[m] || {});
           resp.classeEsp = classeEspSnapshot(m);
           resp.total = chamadaRowTotal(resp);
           unitTotalNow += resp.total;
           membrosData[m] = resp;
         });
-        const rec = {unidade:unidade, data:data, membros:membrosData, unitTotal:unitTotalNow, foto:fotoData||null, savedAt:Date.now(), savedBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—"};
+        const secretario = document.getElementById("chSecretario").value.trim();
+        const observacoes = document.getElementById("chObservacoes").value.trim();
+        const rec = {unidade:unidade, data:data, membros:membrosData, unitTotal:unitTotalNow, foto:fotoData||null, secretario:secretario||null, observacoes:observacoes||null, savedAt:Date.now(), savedBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—"};
         persistChamada(id, rec);
         showModal('<button class="close-x">✕</button><h3>Chamada salva!</h3><p>Chamada de <b>'+esc(unidade)+'</b> em '+esc(data)+' salva com total de <b>'+unitTotalNow+' pts</b>.</p><div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>');
         document.getElementById("mCancel").addEventListener("click", closeModal);
@@ -3322,6 +3370,37 @@ button{font-family:inherit}
     const mb = (bytes / (1024*1024)).toFixed(2);
     const pct = Math.round((bytes / (1024*1024*1024)) * 100);
     return {mb:mb, pct:pct, count:count};
+  }
+  function monthlyApprovalsChartHtml(){
+    const months = [];
+    const now = new Date();
+    for(let i=5;i>=0;i--){
+      const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      months.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"));
+    }
+    const counts = months.map(function(mo){
+      return logEntries.filter(function(e){
+        if(e.action !== "aprovado" || !e.at) return false;
+        const d = new Date(e.at);
+        const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+        return key === mo;
+      }).length;
+    });
+    const max = Math.max.apply(null, counts.concat([1]));
+    const monthLabels = months.map(function(mo){
+      const parts = mo.split("-");
+      return CAL_MONTH_NAMES[parseInt(parts[1],10)-1].slice(0,3);
+    });
+    return '<div style="display:flex;align-items:flex-end;gap:10px;height:110px;padding:8px 4px">'
+      + counts.map(function(c,i){
+        const h = Math.round((c/max)*90) + 6;
+        return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
+          + '<div style="font-size:11px;font-weight:700">'+c+'</div>'
+          + '<div style="width:100%;max-width:34px;height:'+h+'px;background:var(--rope);border-radius:4px 4px 0 0"></div>'
+          + '<div style="font-size:10px;color:var(--muted)">'+esc(monthLabels[i])+'</div>'
+        + '</div>';
+      }).join("")
+    + '</div>';
   }
   function openDashboard(){
     const allGroups = [].concat(espGroups, clsGroups);
@@ -3357,6 +3436,9 @@ button{font-family:inherit}
     html += '<div class="progress-row"><div class="plabel"><span>'+storageInfo.mb+' MB usados de ~1024 MB grátis</span><b>'+storageInfo.pct+'%</b></div>'
       + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(storageInfo.pct,100)+'%'+(storageInfo.pct>80?';background:var(--status-none)':'')+'"></div></div></div>';
     html += '<div class="idea-hint">'+storageInfo.count+' anexo(s) (fotos/arquivos) guardados no total. '+(storageInfo.pct>80?'Está chegando perto do limite gratuito — considere apagar anexos de anos/atividades já encerradas.':'Bem tranquilo, ainda sobra bastante espaço.')+'</div>';
+
+    html += '<h4>Evolução das aprovações (últimos 6 meses)</h4>';
+    html += monthlyApprovalsChartHtml();
 
     html += '<h4>Ranking geral (aprovações na classe do ano)</h4>';
     html += memberStats.length ? memberStats.slice(0,20).map(function(m,i){
@@ -3875,10 +3957,13 @@ button{font-family:inherit}
       ? '<button class="btn primary" data-action="approve" data-member="'+esc(p.member)+'" data-item="'+p.id+'">Aprovar</button>'
         + '<button class="btn" data-action="reject" data-member="'+esc(p.member)+'" data-item="'+p.id+'">Recusar</button>'
       : '<span class="idea-hint" style="margin:0">Fora do seu escopo (unidade/classe)</span>';
-    return '<div class="pending-row">'
+    const daysStale = p.pendingSince ? Math.floor((Date.now() - p.pendingSince) / 86400000) : null;
+    const isStale = daysStale !== null && daysStale >= 14;
+    const staleTag = isStale ? '<span class="idea-hint" style="margin:0;color:#d94e3f;font-weight:700">⏰ Parado há '+daysStale+' dias</span>' : '';
+    return '<div class="pending-row"'+(isStale?' style="border:1px solid #d94e3f"':'')+'>'
       + thumb
       + '<div class="body">'
-        + '<div class="who">'+esc(p.member)+'</div>'
+        + '<div class="who">'+esc(p.member)+' '+staleTag+'</div>'
         + '<div class="what">'+esc(p.title)+'</div>'
         + '<div class="where">'+esc(p.groupLabel)+(p.file ? ' · '+esc(p.file.name) : '')+'</div>'
         + (p.note ? '<div class="note-text">'+esc(p.note)+'</div>' : '')
