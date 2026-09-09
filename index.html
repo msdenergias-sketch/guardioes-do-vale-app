@@ -1145,6 +1145,7 @@ button{font-family:inherit}
     const noteHtml = note ? '<div class="note-text"><b>Resposta de '+esc(currentMember||"")+'</b>'+esc(note)+'</div>' : '';
     const reopenHtml = (currentStaff && status !== "none") ? '<button class="attach-btn" type="button" data-reopen="'+it.id+'" title="Reabrir requisito (volta para não iniciado)">↺</button>' : '';
     const ideaHtml = currentStaff ? '<button class="attach-btn" type="button" data-idea="'+it.id+'" title="Ideias de atividade para este requisito">💡</button>' : '';
+    const bulkHtml = currentStaff ? '<button class="attach-btn" type="button" data-bulk="'+it.id+'" title="Marcar este requisito para vários desbravadores de uma vez">👥</button>' : '';
     return '<div class="row" data-id="'+it.id+'">'
       + '<div class="idx">'+esc(idxLabel)+'</div>'
       + '<div class="body">'
@@ -1157,6 +1158,7 @@ button{font-family:inherit}
           + thumbHtml
           + reopenHtml
           + ideaHtml
+          + bulkHtml
           + (locked ? '' :
             '<button class="attach-btn' + (note?' has-file':'') + ' note-btn" type="button" data-note="'+it.id+'" title="Responder por texto">📝</button>'
             + '<button class="attach-btn" type="button" title="Anexar da galeria/arquivos">📎</button>'
@@ -1247,6 +1249,12 @@ button{font-family:inherit}
         const id = btn.getAttribute("data-remove");
         setState(id, {file:null});
         render();
+      });
+    });
+    listEl.querySelectorAll("[data-bulk]").forEach(function(btn){
+      btn.addEventListener("click", function(ev){
+        ev.stopPropagation();
+        openBulkMarkModal(btn.getAttribute("data-bulk"));
       });
     });
     listEl.querySelectorAll("[data-idea]").forEach(function(btn){
@@ -1491,6 +1499,58 @@ button{font-family:inherit}
       }
     }
     return null;
+  }
+  function openBulkMarkModal(itemId){
+    const found = findItemById(itemId);
+    if(!found) return;
+    if(!membros.length){ alert("Nenhum desbravador cadastrado ainda."); return; }
+    const allowed = membros.filter(function(m){
+      return canStaffAct({member:m, groupKind:found.group.kind, groupLabel:found.group.label});
+    });
+    if(!allowed.length){ alert("Nenhum desbravador dentro da sua unidade/classe cadastrada para marcar este requisito."); return; }
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>Marcar em massa</h3>';
+    html += '<p><b>'+esc(found.group.label)+'</b> — '+esc(found.item.title)+'</p>';
+    html += '<div class="field"><label>Marcar como</label><select id="bulkMarkStatus"><option value="aprovado">Aprovado (já fiz/conferi pessoalmente)</option><option value="pendente">Aguardando aprovação (envia para a diretoria aprovar)</option></select></div>';
+    html += '<div class="field"><label>Desbravadores <button type="button" class="linklike" id="bulkMarkAll">marcar todos</button> · <button type="button" class="linklike" id="bulkMarkNone">limpar</button></label>';
+    html += '<div class="class-checks">' + allowed.map(function(m){
+      return '<label class="class-check"><input type="checkbox" data-bulk-member="'+esc(m)+'"><span>'+esc(m)+'</span></label>';
+    }).join("") + '</div></div>';
+    html += '<div class="actions-row"><button class="btn primary" id="applyBulkMarkBtn">Aplicar</button><button class="btn" id="mCancel">Cancelar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("bulkMarkAll").addEventListener("click", function(){
+      modalRoot.querySelectorAll("[data-bulk-member]").forEach(function(cb){ cb.checked = true; });
+    });
+    document.getElementById("bulkMarkNone").addEventListener("click", function(){
+      modalRoot.querySelectorAll("[data-bulk-member]").forEach(function(cb){ cb.checked = false; });
+    });
+    document.getElementById("applyBulkMarkBtn").addEventListener("click", function(){
+      const chosenStatus = document.getElementById("bulkMarkStatus").value;
+      const selectedMembers = Array.from(modalRoot.querySelectorAll("[data-bulk-member]")).filter(function(cb){ return cb.checked; }).map(function(cb){ return cb.getAttribute("data-bulk-member"); });
+      if(!selectedMembers.length){ alert("Selecione ao menos um desbravador."); return; }
+      selectedMembers.forEach(function(m){
+        setStateFor(m, itemId, {status: chosenStatus});
+        if(chosenStatus === "aprovado"){
+          persistLogEntry({
+            member: m,
+            itemId: itemId,
+            itemTitle: found.item.title,
+            groupLabel: found.group.label,
+            action: "aprovado",
+            by: currentStaff ? (currentStaff.name || currentStaff.username) : "—",
+            at: Date.now()
+          });
+        }
+      });
+      render();
+      let rhtml = '<button class="close-x">✕</button>';
+      rhtml += '<h3>Marcado com sucesso</h3>';
+      rhtml += '<p>'+selectedMembers.length+' desbravador(es) marcado(s) como "'+(chosenStatus==="aprovado"?"Aprovado":"Aguardando aprovação")+'" para <b>'+esc(found.item.title)+'</b>.</p>';
+      rhtml += '<div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>';
+      showModal(rhtml);
+      document.getElementById("mCancel").addEventListener("click", closeModal);
+    });
   }
   function openIdeasModal(itemId){
     const found = findGroupForItem(itemId);
