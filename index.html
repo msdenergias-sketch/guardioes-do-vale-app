@@ -2806,7 +2806,10 @@ button{font-family:inherit}
             if(r.doing>0) bits.push(r.doing+' requisito(s) aguardando aprovação');
             if(r.missing.length) bits.push('Próximos a fazer: '+r.missing.map(function(t){return esc(t);}).join(" · "));
             if(!bits.length) bits.push(r.total ? 'Sem pendências no momento — só falta aprovar o que já foi enviado.' : 'Sem classe do ano definida para este desbravador.');
-            block += '<div class="idea-hint" style="margin:2px 0 12px 4px">'+bits.join(" · ")+'</div>';
+            block += '<div class="idea-hint" style="margin:2px 0 6px 4px">'+bits.join(" · ")+'</div>';
+            if(r.classe && r.total > r.done){
+              block += '<div style="margin:0 0 12px 4px"><button class="linklike" data-cp-sheet="'+esc(r.name)+'">🖨️ Ficha do que falta ('+(r.total-r.done)+' itens)</button></div>';
+            }
           }
           return block;
         }).join("");
@@ -2823,8 +2826,25 @@ button{font-family:inherit}
           render();
         });
       });
+      modalRoot.querySelectorAll("[data-cp-sheet]").forEach(function(el){
+        el.addEventListener("click", function(e){
+          e.stopPropagation();
+          generateMissingSheetForMember(el.getAttribute("data-cp-sheet"));
+        });
+      });
     }
     render();
+  }
+  function generateMissingSheetForMember(member){
+    const info = memberInfo[member] || {};
+    const className = info.classe;
+    if(!className){ alert("Este desbravador não tem classe do ano definida."); return; }
+    const g = clsGroups.find(function(x){ return x.label === className; });
+    if(!g || !g.items.length){ alert("Não encontrei os requisitos dessa classe."); return; }
+    const pending = g.items.filter(function(it){ return (getStateFor(member, it.id).status||"none") !== "aprovado"; });
+    const texts = pending.map(function(it){ return it.idx+" · "+it.num+" — "+it.title; });
+    const w = buildWorksheet('Classe '+esc(className)+' — pendências', texts, member);
+    downloadReport("Ficha - "+member+" - pendencias classe "+className, w.body, w.style);
   }
 
   // ---- chamada digital da unidade ----
