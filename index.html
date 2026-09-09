@@ -2824,6 +2824,12 @@ button{font-family:inherit}
       openChamadaForm(unidade, data);
     });
   }
+  function classeEspSnapshot(m){
+    const p = classYearProgress(m);
+    if(!p.className) return "Sem classe do ano definida";
+    const pct = p.total ? Math.round((p.done/p.total)*100) : 0;
+    return "Classe "+p.className+" — "+p.done+"/"+p.total+" requisitos aprovados ("+pct+"%)";
+  }
   function openChamadaForm(unidade, data){
     const id = chamadaId(unidade, data);
     const existing = chamadas[id];
@@ -2834,6 +2840,8 @@ button{font-family:inherit}
         const cb = cargoOrder.indexOf((memberInfo[b]||{}).cargoUnidade||"Desbravador(a)");
         return (ca<0?99:ca) - (cb<0?99:cb) || a.localeCompare(b);
       });
+    const expanded = new Set();
+    if(members.length) expanded.add(members[0]);
     function render(){
       let html = '<button class="close-x">✕</button>';
       html += '<h3>📣 Chamada — '+esc(unidade)+' · '+esc(data)+'</h3>';
@@ -2845,49 +2853,71 @@ button{font-family:inherit}
         modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
         return;
       }
+      html += '<p class="idea-hint" style="margin-top:-4px">Toque no nome do desbravador para abrir os critérios. O item 7 (Classe/Especialidade) é preenchido automaticamente com o progresso já registrado no app.</p>';
       let unitTotal = 0;
-      html += '<div style="overflow-x:auto"><table class="chamada-table" style="width:100%;border-collapse:collapse;font-size:12.5px">';
-      html += '<thead><tr><th style="text-align:left;padding:4px 6px">Nome / cargo</th>' + CHAMADA_CRITERIA.map(function(c){ return '<th style="text-align:left;padding:4px 6px;min-width:130px">'+esc(c.label)+'</th>'; }).join("") + '<th style="padding:4px 6px">Total</th></tr></thead><tbody>';
+      html += '<div class="chamada-cards">';
       html += members.map(function(m){
         const info = memberInfo[m] || {};
         const cargo = info.cargoUnidade || "Desbravador(a)";
         const saved = (existing && existing.membros && existing.membros[m]) || {};
         const total = chamadaRowTotal(saved);
         unitTotal += total;
-        let row = '<tr data-ch-member="'+esc(m)+'"><td style="padding:4px 6px"><b>'+esc(m)+'</b><br><small style="color:var(--muted)">'+esc(cargo)+'</small></td>';
-        row += CHAMADA_CRITERIA.map(function(c){
-          if(c.texto){
-            return '<td style="padding:4px 6px"><input type="text" data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'" value="'+esc(saved[c.key]||"")+'" placeholder="classe / especialidade" style="width:100%"></td>';
-          }
-          const sel = '<select data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'"><option value="">—</option>' + c.opts.map(function(o){ return '<option value="'+o[0]+'"'+(saved[c.key]===o[0]?" selected":"")+'>'+o[0]+') '+esc(o[1])+' ('+o[2]+'pts)</option>'; }).join("") + '</select>';
-          return '<td style="padding:4px 6px">'+sel+'</td>';
-        }).join("");
-        row += '<td style="padding:4px 6px;text-align:center"><b data-ch-total="'+esc(m)+'">'+total+'</b></td></tr>';
-        return row;
+        const isOpen = expanded.has(m);
+        let card = '<div class="chamada-card" style="border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden">';
+        card += '<div class="chamada-card-head" data-ch-toggle="'+esc(m)+'" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:var(--surface)">'
+          + '<span><b>'+(isOpen?"▾ ":"▸ ")+esc(m)+'</b> <small style="color:var(--muted)">· '+esc(cargo)+'</small></span>'
+          + '<b data-ch-total="'+esc(m)+'" style="white-space:nowrap">'+total+' pts</b>'
+        + '</div>';
+        if(isOpen){
+          card += '<div class="chamada-card-body" data-ch-member="'+esc(m)+'" style="padding:10px 12px;display:flex;flex-direction:column;gap:12px">';
+          card += CHAMADA_CRITERIA.map(function(c){
+            if(c.texto){
+              const snap = classeEspSnapshot(m);
+              return '<div class="field" style="margin:0"><label>'+esc(c.label)+'</label>'
+                + '<input type="hidden" data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'" value="'+esc(snap)+'">'
+                + '<div class="idea-hint" style="margin:2px 0 4px">'+esc(snap)+' <i>(sincronizado automaticamente com a Trilha)</i></div>'
+                + '<input type="text" data-ch-field="classeEspNota" data-ch-member="'+esc(m)+'" value="'+esc(saved.classeEspNota||"")+'" placeholder="Observação opcional (ex.: especialidade em andamento)">'
+              + '</div>';
+            }
+            return '<div class="field" style="margin:0"><label>'+esc(c.label)+'</label>'
+              + '<select data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'"><option value="">— selecione —</option>' + c.opts.map(function(o){ return '<option value="'+o[0]+'"'+(saved[c.key]===o[0]?" selected":"")+'>'+o[0]+') '+esc(o[1])+' — '+o[2]+' pts</option>'; }).join("") + '</select>'
+            + '</div>';
+          }).join("");
+          card += '</div>';
+        }
+        card += '</div>';
+        return card;
       }).join("");
-      html += '</tbody></table></div>';
+      html += '</div>';
       html += '<p class="idea-hint">Pontuação máxima por desbravador: '+CHAMADA_MAX_TOTAL+' pts (item 7 é descritivo, sem pontos). Total da unidade nesta chamada: <b id="chUnitTotal">'+unitTotal+'</b> pts.</p>';
       html += '<div class="actions-row"><button class="btn primary" id="chSaveBtn">💾 Salvar chamada</button><button class="btn" id="mCancel">Fechar</button></div>';
       showModal(html);
       document.getElementById("mCancel").addEventListener("click", closeModal);
       modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
-      modalRoot.querySelectorAll("[data-ch-field]").forEach(function(el){
-        el.addEventListener("change", function(){
-          const m = el.getAttribute("data-ch-member");
-          const key = el.getAttribute("data-ch-field");
-          if(!existing) return;
+      modalRoot.querySelectorAll("[data-ch-toggle]").forEach(function(el){
+        el.addEventListener("click", function(){
+          const m = el.getAttribute("data-ch-toggle");
+          if(expanded.has(m)) expanded.delete(m); else expanded.add(m);
+          render();
         });
+      });
+      function readRow(m){
+        const body = modalRoot.querySelector('[data-ch-member="'+CSS.escape(m)+'"].chamada-card-body');
+        const resp = {};
+        if(body) body.querySelectorAll("[data-ch-field]").forEach(function(f){ resp[f.getAttribute("data-ch-field")] = f.value; });
+        else { const saved = (existing && existing.membros && existing.membros[m]) || {}; return saved; }
+        resp.classeEsp = classeEspSnapshot(m);
+        return resp;
+      }
+      modalRoot.querySelectorAll("[data-ch-field]").forEach(function(el){
         el.addEventListener("input", function(){
           const m = el.getAttribute("data-ch-member");
-          const row = modalRoot.querySelector('tr[data-ch-member="'+CSS.escape(m)+'"]');
-          if(!row) return;
-          const resp = {};
-          row.querySelectorAll("[data-ch-field]").forEach(function(f){ resp[f.getAttribute("data-ch-field")] = f.value; });
+          const resp = readRow(m);
           const total = chamadaRowTotal(resp);
           const totEl = modalRoot.querySelector('[data-ch-total="'+CSS.escape(m)+'"]');
-          if(totEl) totEl.textContent = total;
+          if(totEl) totEl.textContent = total+' pts';
           let sum = 0;
-          modalRoot.querySelectorAll("[data-ch-total]").forEach(function(t){ sum += parseInt(t.textContent,10)||0; });
+          members.forEach(function(mm){ sum += chamadaRowTotal(readRow(mm)); });
           const unitEl = document.getElementById("chUnitTotal");
           if(unitEl) unitEl.textContent = sum;
         });
@@ -2896,9 +2926,8 @@ button{font-family:inherit}
         const membrosData = {};
         let unitTotalNow = 0;
         members.forEach(function(m){
-          const row = modalRoot.querySelector('tr[data-ch-member="'+CSS.escape(m)+'"]');
-          const resp = {};
-          row.querySelectorAll("[data-ch-field]").forEach(function(f){ resp[f.getAttribute("data-ch-field")] = f.value; });
+          const resp = readRow(m);
+          resp.classeEsp = classeEspSnapshot(m);
           resp.total = chamadaRowTotal(resp);
           unitTotalNow += resp.total;
           membrosData[m] = resp;
