@@ -569,15 +569,17 @@ button{font-family:inherit}
       + '<select id="'+idPrefix+'Year">'+yearOpts+'</select>'
       + '</div>';
   }
-  function classCheckboxesHtml(idPrefix, selected){
+  function classCheckboxesHtml(idPrefix, selected, list){
     const sel = selected || [];
-    return '<div class="class-checks">' + ALL_CLASS_NAMES.map(function(c){
+    const names = list || ALL_CLASS_NAMES;
+    return '<div class="class-checks">' + names.map(function(c){
       const color = CLASS_COLOR[c] || "var(--forest)";
       return '<label class="class-check"><input type="checkbox" data-cls="'+esc(c)+'" id="'+idPrefix+'_'+slug(c)+'"'+(sel.indexOf(c)>=0?" checked":"")+'><span class="class-dot" style="background:'+color+'"></span>'+esc(c)+'</label>';
     }).join("") + '</div>';
   }
-  function getSelectedClasses(idPrefix){
-    return ALL_CLASS_NAMES.filter(function(c){
+  function getSelectedClasses(idPrefix, list){
+    const names = list || ALL_CLASS_NAMES;
+    return names.filter(function(c){
       const el = document.getElementById(idPrefix+'_'+slug(c));
       return el && el.checked;
     });
@@ -599,6 +601,7 @@ button{font-family:inherit}
     if(age != null) parts.push(age+" anos");
     if(info.classe) parts.push("Classe atual: "+info.classe);
     else if(sug) parts.push(sug.text.replace("Classe sugerida: ","Sugestão: "));
+    if(info.concluidas && info.concluidas.length) parts.push("Concluídas: "+info.concluidas.join(", "));
     return parts.length ? '<span class="uname">'+esc(parts.join(" · "))+'</span>' : '';
   }
 
@@ -1754,7 +1757,8 @@ button{font-family:inherit}
     const extra = [];
     if(a.unidade) extra.push("Unidade "+a.unidade);
     if(a.birth){ const age = calcAge(a.birth); if(age != null) extra.push(age+" anos"); }
-    if(a.classes && a.classes.length) extra.push("Classes: "+a.classes.join(", "));
+    if(a.classes && a.classes.length) extra.push("Instrutor: "+a.classes.join(", "));
+    if(a.concluidas && a.concluidas.length) extra.push("Concluídas: "+a.concluidas.join(", "));
     const extraHtml = extra.length ? ' · '+esc(extra.join(" · ")) : '';
     return '<div class="staff-item"><span>'+esc(a.name||a.username)+' <span class="uname">('+esc(a.username)+(a.googleEmail?' · '+a.googleEmail:'')+extraHtml+')</span></span><span class="role-chip">'+esc(ROLE_LABELS[a.role]||a.role)+'</span><button class="idea-mini-btn" data-edit-staff="'+esc(a.username)+'" style="margin-left:8px">✏️</button></div>';
   }
@@ -1771,7 +1775,8 @@ button{font-family:inherit}
     html += '<div class="field"><label>E-mail do Google</label><input type="email" id="editStaffGoogleEmail" value="'+esc(a.googleEmail||"")+'"></div>';
     html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("editStaffBirth", a.birth)+'</div>';
     html += '<div class="field"><label>Unidade</label><select id="editStaffUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'"'+(a.unidade===u?" selected":"")+'>'+u+'</option>'; }).join("") + '</select></div>';
-    html += '<div class="field"><label>Classes cadastradas (pode marcar mais de uma)</label>'+classCheckboxesHtml("editStaffCls", a.classes||[])+'</div>';
+    html += '<div class="field"><label>Instrutor de quais classes? (pode marcar mais de uma)</label>'+classCheckboxesHtml("editStaffCls", a.classes||[])+'</div>';
+    html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("editStaffConcl", a.concluidas||[])+'</div>';
     html += '<div class="actions-row"><button class="btn primary" id="saveStaffInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
     showModal(html);
     document.getElementById("mCancel").addEventListener("click", closeModal);
@@ -1790,6 +1795,7 @@ button{font-family:inherit}
       a.birth = getBirthDateFromSelects("editStaffBirth") || null;
       a.unidade = document.getElementById("editStaffUnidade").value || null;
       a.classes = getSelectedClasses("editStaffCls");
+      a.concluidas = getSelectedClasses("editStaffConcl");
       persistStaff();
       openStaffPanel();
     });
@@ -1802,6 +1808,7 @@ button{font-family:inherit}
     html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("editMemberBirth", info.birth)+'</div>';
     html += '<div class="field"><label>Unidade</label><select id="editMemberUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'"'+(info.unidade===u?" selected":"")+'>'+u+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classe atual</label><select id="editMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'"'+(info.classe===c?" selected":"")+'>'+c+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("editMemberConcl", info.concluidas||[], Object.keys(CLASS_MIN_AGE))+'</div>';
     html += '<div class="idea-hint" id="editMemberSuggestion">'+(info.birth ? (function(){ const s = suggestClassForAge(calcAge(info.birth)); return s ? s.text : ""; })() : "")+'</div>';
     html += '<div class="actions-row"><button class="btn primary" id="saveMemberInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
     showModal(html);
@@ -1813,7 +1820,7 @@ button{font-family:inherit}
       });
     });
     document.getElementById("saveMemberInfoBtn").addEventListener("click", function(){
-      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, classe:document.getElementById("editMemberClasse").value||null};
+      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE))};
       persistMemberInfo();
       openStaffPanel();
     });
@@ -1848,6 +1855,7 @@ button{font-family:inherit}
     html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("newMemberBirth", null)+'</div>';
     html += '<div class="field"><label>Unidade</label><select id="newMemberUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'">'+u+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classe atual</label><select id="newMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'">'+c+'</option>'; }).join("") + '</select></div>';
+    html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("newMemberConcl", [], Object.keys(CLASS_MIN_AGE))+'</div>';
     html += '<div class="idea-hint" id="newMemberSuggestion"></div>';
     html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="addMemberBtn">Adicionar membro</button></div>';
 
@@ -1861,7 +1869,8 @@ button{font-family:inherit}
       html += '<div class="field"><label>E-mail do Google (para liberar acesso às pastas do Drive)</label><input type="email" id="newStaffGoogleEmail" placeholder="nome@gmail.com"></div>';
       html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("newStaffBirth", null)+'</div>';
       html += '<div class="field"><label>Unidade</label><select id="newStaffUnidade"><option value="">Selecione…</option>' + UNIDADES.map(function(u){ return '<option value="'+u+'">'+u+'</option>'; }).join("") + '</select></div>';
-      html += '<div class="field"><label>Classes cadastradas (pode marcar mais de uma)</label>'+classCheckboxesHtml("newStaffCls", [])+'</div>';
+      html += '<div class="field"><label>Instrutor de quais classes? (pode marcar mais de uma)</label>'+classCheckboxesHtml("newStaffCls", [])+'</div>';
+      html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("newStaffConcl", [])+'</div>';
       html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="addStaffBtn">Adicionar à diretoria</button></div>';
 
       html += '<h4>Contas de responsáveis (pais/mães)</h4>';
@@ -1932,8 +1941,9 @@ button{font-family:inherit}
       const birth = getBirthDateFromSelects("newMemberBirth");
       const unidade = document.getElementById("newMemberUnidade").value;
       const classe = document.getElementById("newMemberClasse").value;
+      const concluidas = getSelectedClasses("newMemberConcl", Object.keys(CLASS_MIN_AGE));
       if(membros.indexOf(name) === -1){ membros.push(name); persistMembros(); }
-      if(birth || unidade || classe){ memberInfo[name] = {birth:birth||null, unidade:unidade||null, classe:classe||null}; persistMemberInfo(); }
+      if(birth || unidade || classe || concluidas.length){ memberInfo[name] = {birth:birth||null, unidade:unidade||null, classe:classe||null, concluidas:concluidas}; persistMemberInfo(); }
       renderMemberSelect();
       render();
       openStaffPanel();
@@ -1969,7 +1979,8 @@ button{font-family:inherit}
         const staffBirth = getBirthDateFromSelects("newStaffBirth");
         const staffUnidade = document.getElementById("newStaffUnidade").value;
         const staffClasses = getSelectedClasses("newStaffCls");
-        staffAccounts.push({name:name||username, username:username, password:password, role:role, googleEmail:googleEmail||null, birth:staffBirth||null, unidade:staffUnidade||null, classes:staffClasses});
+        const staffConcluidas = getSelectedClasses("newStaffConcl");
+        staffAccounts.push({name:name||username, username:username, password:password, role:role, googleEmail:googleEmail||null, birth:staffBirth||null, unidade:staffUnidade||null, classes:staffClasses, concluidas:staffConcluidas});
         persistStaff();
         openStaffPanel();
       });
