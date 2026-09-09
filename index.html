@@ -39,7 +39,8 @@
                 return docRef.get().then(function(snap){
                   return snap.exists ? {id:snap.id, data:snap.data()} : null;
                 });
-              }
+              },
+              delete: function(){ return docRef.delete(); }
             };
           },
           list: function(){
@@ -164,6 +165,7 @@ button{font-family:inherit}
 .modal .actions-row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
 .modal .btn{padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-size:13px}
 .modal .btn.primary{background:var(--forest);color:#fff;border-color:var(--forest)}
+.modal .btn.danger{background:var(--status-none);color:#fff;border-color:var(--status-none)}
 .modal .close-x{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer}
 
 .pending-row{display:flex;align-items:flex-start;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
@@ -1362,6 +1364,32 @@ button{font-family:inherit}
     if(closeX) closeX.addEventListener("click", closeModal);
   }
   function closeModal(){ modalRoot.innerHTML = ""; }
+  function confirmModal(title, message, confirmLabel, onConfirm){
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>'+esc(title)+'</h3>';
+    html += '<p>'+message+'</p>';
+    html += '<div class="actions-row"><button class="btn danger" id="confirmModalYes">'+esc(confirmLabel||"Confirmar")+'</button><button class="btn" id="mCancel">Cancelar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("confirmModalYes").addEventListener("click", onConfirm);
+  }
+  function deleteMemberEntirely(name){
+    membros = membros.filter(function(m){ return m !== name; });
+    delete memberInfo[name];
+    Object.keys(state).forEach(function(k){
+      if(k.indexOf(name + "::") === 0){
+        delete state[k];
+        if(db) db.collection("trilha_status").doc(k).delete().catch(function(){});
+      }
+    });
+    if(currentMember === name){ currentMember = null; try{ localStorage.removeItem("trilha_current_member"); }catch(e){} }
+    persistMembros();
+    persistMemberInfo();
+  }
+  function deleteStaffAccount(username){
+    staffAccounts = staffAccounts.filter(function(a){ return a.username !== username; });
+    persistStaff();
+  }
 
   // ---- visualizador de pasta embutido (evita ter que "entrar" na pasta do Drive) ----
   function driveFolderId(url){
@@ -1511,7 +1539,7 @@ button{font-family:inherit}
     let html = '<button class="close-x">✕</button>';
     html += '<h3>Marcar em massa</h3>';
     html += '<p><b>'+esc(found.group.label)+'</b> — '+esc(found.item.title)+'</p>';
-    html += '<div class="field"><label>Marcar como</label><select id="bulkMarkStatus"><option value="aprovado">Aprovado (já fiz/conferi pessoalmente)</option><option value="pendente">Aguardando aprovação (envia para a diretoria aprovar)</option></select></div>';
+    html += '<div class="field"><label>Marcar como</label><select id="bulkMarkStatus"><option value="aprovado">Aprovado (já fiz/conferi pessoalmente)</option><option value="pendente">Aguardando aprovação (envia para a diretoria aprovar)</option><option value="none">Desfazer / reabrir (volta para não iniciado — corrige aprovação errada)</option></select></div>';
     html += '<div class="field"><label>Desbravadores <button type="button" class="linklike" id="bulkMarkAll">marcar todos</button> · <button type="button" class="linklike" id="bulkMarkNone">limpar</button></label>';
     html += '<div class="class-checks">' + allowed.map(function(m){
       return '<label class="class-check"><input type="checkbox" data-bulk-member="'+esc(m)+'"><span>'+esc(m)+'</span></label>';
@@ -1546,7 +1574,8 @@ button{font-family:inherit}
       render();
       let rhtml = '<button class="close-x">✕</button>';
       rhtml += '<h3>Marcado com sucesso</h3>';
-      rhtml += '<p>'+selectedMembers.length+' desbravador(es) marcado(s) como "'+(chosenStatus==="aprovado"?"Aprovado":"Aguardando aprovação")+'" para <b>'+esc(found.item.title)+'</b>.</p>';
+      const chosenLabel = chosenStatus==="aprovado" ? "Aprovado" : (chosenStatus==="pendente" ? "Aguardando aprovação" : "Não iniciado (reaberto)");
+      rhtml += '<p>'+selectedMembers.length+' desbravador(es) marcado(s) como "'+chosenLabel+'" para <b>'+esc(found.item.title)+'</b>.</p>';
       rhtml += '<div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>';
       showModal(rhtml);
       document.getElementById("mCancel").addEventListener("click", closeModal);
@@ -1876,7 +1905,7 @@ button{font-family:inherit}
     if(a.classes && a.classes.length) extra.push("Instrutor: "+a.classes.join(", "));
     if(a.concluidas && a.concluidas.length) extra.push("Concluídas: "+a.concluidas.join(", "));
     const extraHtml = extra.length ? ' · '+esc(extra.join(" · ")) : '';
-    return '<div class="staff-item"><span>'+esc(a.name||a.username)+' <span class="uname">('+esc(a.username)+(a.googleEmail?' · '+a.googleEmail:'')+extraHtml+')</span></span><span class="role-chip">'+esc(ROLE_LABELS[a.role]||a.role)+'</span><button class="idea-mini-btn" data-edit-staff="'+esc(a.username)+'" style="margin-left:8px">✏️</button></div>';
+    return '<div class="staff-item"><span>'+esc(a.name||a.username)+' <span class="uname">('+esc(a.username)+(a.googleEmail?' · '+a.googleEmail:'')+extraHtml+')</span></span><span class="role-chip">'+esc(ROLE_LABELS[a.role]||a.role)+'</span><button class="idea-mini-btn" data-edit-staff="'+esc(a.username)+'" style="margin-left:8px">✏️</button><button class="idea-mini-btn" data-delete-staff="'+esc(a.username)+'">🗑️</button></div>';
   }
 
   function openEditStaffModal(username){
@@ -1968,7 +1997,7 @@ button{font-family:inherit}
 
     html += '<h4>Membros do clube ('+membros.length+')</h4>';
     html += membros.length
-      ? membros.map(function(m){ return '<div class="staff-item"><span>'+esc(m)+' '+memberInfoHtml(m)+'</span><button class="idea-mini-btn" data-edit-member="'+esc(m)+'">✏️ Editar</button></div>'; }).join("")
+      ? membros.map(function(m){ return '<div class="staff-item"><span>'+esc(m)+' '+memberInfoHtml(m)+'</span><span><button class="idea-mini-btn" data-edit-member="'+esc(m)+'">✏️ Editar</button> <button class="idea-mini-btn" data-delete-member="'+esc(m)+'">🗑️ Excluir</button></span></div>'; }).join("")
       : '<div class="pending-empty">Nenhum membro cadastrado ainda.</div>';
     html += '<div class="field" style="margin-top:12px"><label>Nome do desbravador(a)</label><input type="text" id="newMemberName2" placeholder="Ex.: João Silva"></div>';
     html += '<div class="field"><label>Data de nascimento</label>'+birthDateSelectHtml("newMemberBirth", null)+'</div>';
@@ -2120,6 +2149,32 @@ button{font-family:inherit}
     });
     modalRoot.querySelectorAll("[data-edit-staff]").forEach(function(btn){
       btn.addEventListener("click", function(){ openEditStaffModal(btn.getAttribute("data-edit-staff")); });
+    });
+    modalRoot.querySelectorAll("[data-delete-member]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        const name = btn.getAttribute("data-delete-member");
+        confirmModal(
+          "Excluir cadastro",
+          "Tem certeza que quer excluir <b>"+esc(name)+"</b>? Isso apaga o cadastro (nascimento, unidade, classe) e todo o progresso/aprovações desse desbravador. <b>Não tem como desfazer.</b>",
+          "Excluir definitivamente",
+          function(){ deleteMemberEntirely(name); renderMemberSelect(); render(); openStaffPanel(); }
+        );
+      });
+    });
+    modalRoot.querySelectorAll("[data-delete-staff]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        const username = btn.getAttribute("data-delete-staff");
+        if(currentStaff && currentStaff.username === username){ alert("Você não pode excluir a própria conta enquanto está logado nela."); return; }
+        const diretorCount = staffAccounts.filter(function(a){ return a.role === "diretor"; }).length;
+        const target = staffAccounts.find(function(a){ return a.username === username; });
+        if(target && target.role === "diretor" && diretorCount <= 1){ alert("Essa é a única conta de Diretor(a) — não pode ser excluída."); return; }
+        confirmModal(
+          "Excluir conta de acesso",
+          "Tem certeza que quer excluir a conta <b>"+esc(username)+"</b>? A pessoa perde o acesso ao app. <b>Não tem como desfazer.</b>",
+          "Excluir definitivamente",
+          function(){ deleteStaffAccount(username); openStaffPanel(); }
+        );
+      });
     });
 
     if(currentStaff.role === "diretor"){
