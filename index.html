@@ -1925,6 +1925,22 @@ button{font-family:inherit}
     return {groups:groups, totalDone:totalDone, totalDoing:totalDoing, totalAll:totalAll};
   }
 
+  // Progresso restrito à classe do ano do membro (memberInfo[m].classe) — usado em
+  // relatórios/ranking/pontuação do Clube, que devem avaliar a aprovação pela classe
+  // atual do desbravador e não pelo total de tudo (todas as classes + especialidades).
+  function classYearProgress(member){
+    const info = memberInfo[member] || {};
+    const className = info.classe || null;
+    const g = className ? clsGroups.find(function(x){ return x.label === className; }) : null;
+    if(!g || !g.items.length) return {done:0, doing:0, total:0, className:className};
+    let done=0, doing=0;
+    g.items.forEach(function(it){
+      const s = getStateFor(member, it.id).status || "none";
+      if(s==="aprovado") done++; else if(s==="pendente") doing++;
+    });
+    return {done:done, doing:doing, total:g.items.length, className:className};
+  }
+
   function openProgressModal(){
     const member = currentParent ? currentParent.childName : currentMember;
     if(!member){ alert("Selecione um Desbravador no topo da tela primeiro."); return; }
@@ -2527,8 +2543,8 @@ button{font-family:inherit}
   function openDashboard(){
     const allGroups = [].concat(espGroups, clsGroups);
     const memberStats = membros.map(function(m){
-      const p = computeMemberProgress(m);
-      return {name:m, done:p.totalDone, doing:p.totalDoing, total:p.totalAll};
+      const p = classYearProgress(m);
+      return {name:m, done:p.done, doing:p.doing, total:p.total, className:p.className};
     }).sort(function(a,b){ return b.done - a.done; });
 
     const groupStats = allGroups.map(function(g){
@@ -2559,9 +2575,10 @@ button{font-family:inherit}
       + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(storageInfo.pct,100)+'%'+(storageInfo.pct>80?';background:var(--status-none)':'')+'"></div></div></div>';
     html += '<div class="idea-hint">'+storageInfo.count+' anexo(s) (fotos/arquivos) guardados no total. '+(storageInfo.pct>80?'Está chegando perto do limite gratuito — considere apagar anexos de anos/atividades já encerradas.':'Bem tranquilo, ainda sobra bastante espaço.')+'</div>';
 
-    html += '<h4>Ranking geral (por aprovações)</h4>';
+    html += '<h4>Ranking geral (aprovações na classe do ano)</h4>';
     html += memberStats.length ? memberStats.slice(0,20).map(function(m,i){
-      return '<div class="rank-row"><span class="rpos">'+(i+1)+'º</span><span class="rname">'+esc(m.name)+'</span><span class="rcount">'+m.done+' aprov.</span></div>';
+      const sub = m.className ? esc(m.className)+' — '+m.done+'/'+m.total : 'sem classe definida';
+      return '<div class="rank-row"><span class="rpos">'+(i+1)+'º</span><span class="rname">'+esc(m.name)+' <small style="color:var(--muted);font-weight:400">('+sub+')</small></span><span class="rcount">'+m.done+' aprov.</span></div>';
     }).join("") : '<div class="pending-empty">Nenhum membro cadastrado ainda.</div>';
 
     html += '<h4>Especialidades e Classes — quem já concluiu</h4>';
@@ -2580,8 +2597,8 @@ button{font-family:inherit}
   function exportClubPdf(){
     const allGroups = [].concat(espGroups, clsGroups);
     const memberStats = membros.map(function(m){
-      const p = computeMemberProgress(m);
-      return {name:m, done:p.totalDone, doing:p.totalDoing, total:p.totalAll};
+      const p = classYearProgress(m);
+      return {name:m, done:p.done, doing:p.doing, total:p.total, className:p.className};
     }).sort(function(a,b){ return b.done - a.done; });
 
     const groupStats = allGroups.map(function(g){
@@ -2605,7 +2622,7 @@ button{font-family:inherit}
     if(!w){ alert("Seu navegador bloqueou a nova aba. Permita pop-ups para exportar."); return; }
 
     const memberRows = memberStats.map(function(m,i){
-      return '<tr><td>'+(i+1)+'º</td><td>'+esc(m.name)+'</td><td>'+m.done+'</td><td>'+m.doing+'</td><td>'+m.total+'</td></tr>';
+      return '<tr><td>'+(i+1)+'º</td><td>'+esc(m.name)+'</td><td>'+esc(m.className||'—')+'</td><td>'+m.done+'</td><td>'+m.doing+'</td><td>'+m.total+'</td></tr>';
     }).join("");
     const groupRows = groupStats.map(function(g){
       const pct = membros.length ? Math.round((g.completedCount/membros.length)*100) : 0;
@@ -2623,8 +2640,8 @@ button{font-family:inherit}
       + '<h1>Trilha do Desbravador — Relatório Completo do Clube</h1>'
       + '<p class="sub">Clube Guardiões do Vale · '+new Date().toLocaleDateString("pt-BR")+'</p>'
       + '<div class="totals"><div><b>'+membros.length+'</b>Membros</div><div><b>'+totalAprov+'</b>Aprovações totais</div><div><b>'+totalPend+'</b>Pendentes no momento</div></div>'
-      + '<h2>Ranking geral por membro</h2>'
-      + '<table><thead><tr><th>#</th><th>Nome</th><th>Aprovados</th><th>Pendentes</th><th>Total de itens</th></tr></thead><tbody>'+memberRows+'</tbody></table>'
+      + '<h2>Ranking geral por membro (aprovação na classe do ano)</h2>'
+      + '<table><thead><tr><th>#</th><th>Nome</th><th>Classe do ano</th><th>Aprovados</th><th>Pendentes</th><th>Total requisitos da classe</th></tr></thead><tbody>'+memberRows+'</tbody></table>'
       + '<h2>Especialidades e Classes — progresso do clube</h2>'
       + '<table><thead><tr><th>Nome</th><th>Tipo</th><th>Concluíram</th><th>%</th></tr></thead><tbody>'+groupRows+'</tbody></table>'
     );
@@ -2896,8 +2913,8 @@ button{font-family:inherit}
   // ---- modo apresentação (telão) ----
   function openPresentation(){
     const memberStats = membros.map(function(m){
-      const p = computeMemberProgress(m);
-      return {name:m, done:p.totalDone};
+      const p = classYearProgress(m);
+      return {name:m, done:p.done, total:p.total, className:p.className};
     }).sort(function(a,b){ return b.done - a.done; });
 
     const overlay = document.createElement("div");
@@ -2905,9 +2922,10 @@ button{font-family:inherit}
     overlay.id = "presentationOverlay";
     let html = '<button class="pclose" id="presClose">✕</button>';
     html += '<h1>Ranking Geral · Trilha do Desbravador</h1>';
-    html += '<div class="sub">Clube Guardiões do Vale — '+new Date().toLocaleDateString("pt-BR")+'</div>';
+    html += '<div class="sub">Clube Guardiões do Vale — aprovações na classe do ano — '+new Date().toLocaleDateString("pt-BR")+'</div>';
     html += memberStats.length ? memberStats.map(function(m,i){
-      return '<div class="prank"><span class="rpos">'+(i+1)+'º</span><span class="rname">'+esc(m.name)+'</span><span class="rcount">'+m.done+' aprovações</span></div>';
+      const sub = m.className ? esc(m.className) : 'sem classe definida';
+      return '<div class="prank"><span class="rpos">'+(i+1)+'º</span><span class="rname">'+esc(m.name)+' <small style="opacity:.7;font-size:14px">('+sub+')</small></span><span class="rcount">'+m.done+' aprovações</span></div>';
     }).join("") : '<div class="prank"><span class="rname">Nenhum membro cadastrado ainda.</span></div>';
     overlay.innerHTML = html;
     document.body.appendChild(overlay);
