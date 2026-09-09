@@ -685,10 +685,17 @@ button{font-family:inherit}
   }
   // idade >= 16 e (opcionalmente) gênero igual ao informado — usado para sugerir instrutor(a)/conselheiro(a) a partir do cadastro da diretoria
   function eligibleStaffNames(generoFilter){
-    return staffAccounts.filter(function(a){
+    const base = staffAccounts.filter(function(a){
       const age = calcAge(a.birth);
-      return age != null && age >= 16 && (!generoFilter || a.genero === generoFilter);
-    }).map(function(a){ return a.name || a.username; }).sort(function(a,b){ return a.localeCompare(b); });
+      return age != null && age >= 16;
+    });
+    let list = base;
+    if(generoFilter){
+      const filtered = base.filter(function(a){ return a.genero === generoFilter; });
+      // se ninguém na diretoria tem o gênero cadastrado ainda, mostra todos em vez de lista vazia
+      if(filtered.length) list = filtered;
+    }
+    return list.map(function(a){ return a.name || a.username; }).sort(function(a,b){ return a.localeCompare(b); });
   }
   function staffSelectOptions(options, selected){
     let html = '<option value="">— Selecione —</option>';
@@ -2445,6 +2452,7 @@ button{font-family:inherit}
     html += '<div class="field"><label>Instrutor(a) Associado(a)</label><select id="editMemberRespAssoc">'+staffSelectOptions(eligibleStaffNames(null), info.responsavelAssoc||"")+'</select></div>';
     html += '<div class="field"><label>Conselheiro(a)</label><select id="editMemberConselheiro">'+staffSelectOptions(eligibleStaffNames(info.genero||null), info.conselheiro||"")+'</select></div>';
     html += '<div class="field"><label>Conselheiro(a) Associado(a)</label><select id="editMemberConselheiroAssoc">'+staffSelectOptions(eligibleStaffNames(info.genero||null), info.conselheiroAssoc||"")+'</select></div>';
+    html += '<p class="idea-hint" style="margin-top:-6px">Se a lista de conselheiro(a) não estiver filtrada por gênero, edite o cadastro de cada membro da diretoria e informe o gênero dele(a) também.</p>';
     html += '<div class="field"><label>Batismo</label><select id="editMemberBatismo"><option value="">Não informado</option><option value="sim"'+(info.batismo===true?" selected":"")+'>Sim</option><option value="nao"'+(info.batismo===false?" selected":"")+'>Não</option></select></div>';
     html += '<div class="idea-hint" id="editMemberSuggestion">'+(info.birth ? (function(){ const s = suggestClassForAge(calcAge(info.birth)); return s ? s.text : ""; })() : "")+'</div>';
     html += '<div class="actions-row"><button class="btn primary" id="saveMemberInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
