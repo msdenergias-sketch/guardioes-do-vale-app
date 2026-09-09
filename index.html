@@ -694,8 +694,10 @@ button{font-family:inherit}
     if(info.classe) parts.push("Classe atual: "+info.classe);
     else if(sug) parts.push(sug.text.replace("Classe sugerida: ","Sugestão: "));
     if(info.concluidas && info.concluidas.length) parts.push("Concluídas: "+info.concluidas.join(", "));
-    if(info.responsavel) parts.push("Instrutor responsável: "+info.responsavel);
+    if(info.responsavel) parts.push("Instrutor(a): "+info.responsavel);
+    if(info.responsavelAssoc) parts.push("Instrutor(a) Associado(a): "+info.responsavelAssoc);
     if(info.conselheiro) parts.push("Conselheiro(a): "+info.conselheiro);
+    if(info.conselheiroAssoc) parts.push("Conselheiro(a) Associado(a): "+info.conselheiroAssoc);
     if(info.batismo === true) parts.push("Batizado(a)");
     else if(info.batismo === false) parts.push("Não batizado(a)");
     return parts.length ? '<span class="uname">'+esc(parts.join(" · "))+'</span>' : '';
@@ -2423,8 +2425,10 @@ button{font-family:inherit}
     html += '<div class="field"><label>Cargo na unidade</label><select id="editMemberCargo"><option value="">Selecione…</option>' + CARGO_UNIDADE.map(function(c){ return '<option value="'+c+'"'+(info.cargoUnidade===c?" selected":"")+'>'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classe atual</label><select id="editMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'"'+(info.classe===c?" selected":"")+'>'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("editMemberConcl", info.concluidas||[], Object.keys(CLASS_MIN_AGE))+'</div>';
-    html += '<div class="field"><label>Instrutor(a) responsável</label><input type="text" id="editMemberResp" value="'+esc(info.responsavel||"")+'" placeholder="Nome do instrutor/conselheiro"></div>';
-    html += '<div class="field"><label>Conselheiro(a) responsável</label><input type="text" id="editMemberConselheiro" value="'+esc(info.conselheiro||"")+'" placeholder="Nome do conselheiro da unidade"></div>';
+    html += '<div class="field"><label>Instrutor(a)</label><input type="text" id="editMemberResp" value="'+esc(info.responsavel||"")+'" placeholder="Nome do instrutor"></div>';
+    html += '<div class="field"><label>Instrutor(a) Associado(a)</label><input type="text" id="editMemberRespAssoc" value="'+esc(info.responsavelAssoc||"")+'" placeholder="Nome do instrutor associado"></div>';
+    html += '<div class="field"><label>Conselheiro(a)</label><input type="text" id="editMemberConselheiro" value="'+esc(info.conselheiro||"")+'" placeholder="Nome do conselheiro da unidade"></div>';
+    html += '<div class="field"><label>Conselheiro(a) Associado(a)</label><input type="text" id="editMemberConselheiroAssoc" value="'+esc(info.conselheiroAssoc||"")+'" placeholder="Nome do conselheiro associado"></div>';
     html += '<div class="field"><label>Batismo</label><select id="editMemberBatismo"><option value="">Não informado</option><option value="sim"'+(info.batismo===true?" selected":"")+'>Sim</option><option value="nao"'+(info.batismo===false?" selected":"")+'>Não</option></select></div>';
     html += '<div class="idea-hint" id="editMemberSuggestion">'+(info.birth ? (function(){ const s = suggestClassForAge(calcAge(info.birth)); return s ? s.text : ""; })() : "")+'</div>';
     html += '<div class="actions-row"><button class="btn primary" id="saveMemberInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
@@ -2438,7 +2442,7 @@ button{font-family:inherit}
     });
     document.getElementById("saveMemberInfoBtn").addEventListener("click", function(){
       const batismoVal = document.getElementById("editMemberBatismo").value;
-      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, conselheiro:document.getElementById("editMemberConselheiro").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
+      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, responsavelAssoc:document.getElementById("editMemberRespAssoc").value.trim()||null, conselheiro:document.getElementById("editMemberConselheiro").value.trim()||null, conselheiroAssoc:document.getElementById("editMemberConselheiroAssoc").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
       persistMemberInfo();
       openStaffPanel();
     });
@@ -2477,8 +2481,10 @@ button{font-family:inherit}
     html += '<div class="field"><label>Cargo na unidade</label><select id="newMemberCargo"><option value="">Selecione…</option>' + CARGO_UNIDADE.map(function(c){ return '<option value="'+c+'">'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classe atual</label><select id="newMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'">'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("newMemberConcl", [], Object.keys(CLASS_MIN_AGE))+'</div>';
-    html += '<div class="field"><label>Instrutor(a) responsável</label><input type="text" id="newMemberResp" placeholder="Nome do instrutor/conselheiro"></div>';
-    html += '<div class="field"><label>Conselheiro(a) responsável</label><input type="text" id="newMemberConselheiro" placeholder="Nome do conselheiro da unidade"></div>';
+    html += '<div class="field"><label>Instrutor(a)</label><input type="text" id="newMemberResp" placeholder="Nome do instrutor"></div>';
+    html += '<div class="field"><label>Instrutor(a) Associado(a)</label><input type="text" id="newMemberRespAssoc" placeholder="Nome do instrutor associado"></div>';
+    html += '<div class="field"><label>Conselheiro(a)</label><input type="text" id="newMemberConselheiro" placeholder="Nome do conselheiro da unidade"></div>';
+    html += '<div class="field"><label>Conselheiro(a) Associado(a)</label><input type="text" id="newMemberConselheiroAssoc" placeholder="Nome do conselheiro associado"></div>';
     html += '<div class="field"><label>Batismo</label><select id="newMemberBatismo"><option value="">Não informado</option><option value="sim">Sim</option><option value="nao">Não</option></select></div>';
     html += '<div class="idea-hint" id="newMemberSuggestion"></div>';
     html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="addMemberBtn">Adicionar membro</button></div>';
@@ -2602,11 +2608,13 @@ button{font-family:inherit}
       const classe = document.getElementById("newMemberClasse").value;
       const concluidas = getSelectedClasses("newMemberConcl", Object.keys(CLASS_MIN_AGE));
       const responsavel = document.getElementById("newMemberResp").value.trim();
+      const responsavelAssoc = document.getElementById("newMemberRespAssoc").value.trim();
       const conselheiro = document.getElementById("newMemberConselheiro").value.trim();
+      const conselheiroAssoc = document.getElementById("newMemberConselheiroAssoc").value.trim();
       const batismoVal = document.getElementById("newMemberBatismo").value;
       const batismo = batismoVal==="sim"?true:(batismoVal==="nao"?false:null);
       if(membros.indexOf(name) === -1){ membros.push(name); persistMembros(); }
-      if(birth || unidade || cargoUnidade || classe || concluidas.length || responsavel || conselheiro || batismo!==null){ memberInfo[name] = {birth:birth||null, unidade:unidade||null, cargoUnidade:cargoUnidade||null, classe:classe||null, concluidas:concluidas, responsavel:responsavel||null, conselheiro:conselheiro||null, batismo:batismo}; persistMemberInfo(); }
+      if(birth || unidade || cargoUnidade || classe || concluidas.length || responsavel || responsavelAssoc || conselheiro || conselheiroAssoc || batismo!==null){ memberInfo[name] = {birth:birth||null, unidade:unidade||null, cargoUnidade:cargoUnidade||null, classe:classe||null, concluidas:concluidas, responsavel:responsavel||null, responsavelAssoc:responsavelAssoc||null, conselheiro:conselheiro||null, conselheiroAssoc:conselheiroAssoc||null, batismo:batismo}; persistMemberInfo(); }
       renderMemberSelect();
       render();
       openStaffPanel();
@@ -2867,9 +2875,14 @@ button{font-family:inherit}
         const total = chamadaRowTotal(saved);
         unitTotal += total;
         const isOpen = expanded.has(m);
+        const respBits = [];
+        if(info.responsavel) respBits.push("Instrutor(a): "+info.responsavel);
+        if(info.responsavelAssoc) respBits.push("Instr. Assoc.: "+info.responsavelAssoc);
+        if(info.conselheiro) respBits.push("Conselheiro(a): "+info.conselheiro);
+        if(info.conselheiroAssoc) respBits.push("Cons. Assoc.: "+info.conselheiroAssoc);
         let card = '<div class="chamada-card" style="border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden">';
         card += '<div class="chamada-card-head" data-ch-toggle="'+esc(m)+'" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:var(--surface)">'
-          + '<span><b>'+(isOpen?"▾ ":"▸ ")+esc(m)+'</b> <small style="color:var(--muted)">· '+esc(cargo)+'</small></span>'
+          + '<span><b>'+(isOpen?"▾ ":"▸ ")+esc(m)+'</b> <small style="color:var(--muted)">· '+esc(cargo)+(respBits.length?' · '+esc(respBits.join(" · ")):'')+'</small></span>'
           + '<b data-ch-total="'+esc(m)+'" style="white-space:nowrap">'+total+' pts</b>'
         + '</div>';
         if(isOpen){
