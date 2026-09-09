@@ -303,6 +303,8 @@ button{font-family:inherit}
 .spec-caret{color:var(--muted);font-size:11px;width:10px;flex-shrink:0}
 .spec-code{font-family:"Oswald";color:var(--muted);font-size:12px;flex-shrink:0}
 .spec-name{font-weight:600;flex:1}
+.spec-link{color:var(--forest);text-decoration:none;font-size:12px;font-weight:500;white-space:nowrap}
+.spec-link:hover{text-decoration:underline}
 .spec-progress{font-size:12px;font-weight:600;padding:3px 10px;border-radius:100px;white-space:nowrap}
 .spec-progress[data-s="none"]{background:var(--status-none-tint);color:var(--status-none)}
 .spec-progress[data-s="pendente"]{background:var(--status-doing-tint);color:var(--status-doing)}
@@ -1233,11 +1235,14 @@ button{font-family:inherit}
     const expanded = !!query || expandedSpecs.has(spec.code);
     let inner = "";
     if(expanded){ spec.items.forEach(function(it){ inner += rowHtml(it, g.kind); }); }
+    const wikiHtml = spec.wiki ? '<a href="'+spec.wiki+'" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()">Ver na MDA Wiki ↗</a>' : '';
+    const driveHtml = (spec.driveUrl && currentStaff) ? '<a href="'+spec.driveUrl+'" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()">📁 Pasta (Drive) ↗</a>' : '';
     return '<div class="spec-block">'
       + '<div class="spec-head" data-spec-toggle="'+esc(spec.code)+'">'
         + '<span class="spec-caret">'+(expanded?"▼":"▶")+'</span>'
         + '<span class="spec-code">'+esc(spec.code)+'</span>'
         + '<span class="spec-name">'+esc(spec.name)+'</span>'
+        + wikiHtml + driveHtml
         + '<span class="spec-progress" data-s="'+(done===total?"aprovado":(done>0?"pendente":"none"))+'">'+done+'/'+total+' ('+pct+'%)</span>'
       + '</div>'
       + (expanded ? '<div class="spec-items">'+inner+'</div>' : '')
@@ -1265,7 +1270,7 @@ button{font-family:inherit}
       + '<div class="idx">'+esc(idxLabel)+'</div>'
       + '<div class="body">'
         + '<div class="title">'+esc(it.title)+'</div>'
-        + '<div class="meta">'+ (it.wiki ? '<a href="'+it.wiki+'" target="_blank" rel="noopener">Ver na MDA Wiki ↗</a>' : '') + (it.driveUrl && currentStaff ? (it.wiki ? ' · ' : '') + '<a href="'+it.driveUrl+'" target="_blank" rel="noopener">📁 Abrir pasta (Drive) ↗</a>' : '') + (file ? ' · <span class="filechip"><span>'+esc(file.name)+'</span>'+(canRemove?'<button data-remove="'+it.id+'" title="Remover anexo">✕</button>':'')+'</span>' : '') + '</div>'
+        + '<div class="meta">'+ (it.specialtyName ? '' : (it.wiki ? '<a href="'+it.wiki+'" target="_blank" rel="noopener">Ver na MDA Wiki ↗</a>' : '') + (it.driveUrl && currentStaff ? (it.wiki ? ' · ' : '') + '<a href="'+it.driveUrl+'" target="_blank" rel="noopener">📁 Abrir pasta (Drive) ↗</a>' : '')) + (file ? ((it.specialtyName?'':' · ')+'<span class="filechip"><span>'+esc(file.name)+'</span>'+(canRemove?'<button data-remove="'+it.id+'" title="Remover anexo">✕</button>':'')+'</span>') : '') + '</div>'
         + noteHtml
       + '</div>'
       + '<div class="actions">'
