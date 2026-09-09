@@ -2027,15 +2027,25 @@ button{font-family:inherit}
     try{ saved = localStorage.getItem("trilha_theme"); }catch(e){}
     if(saved === "light" || saved === "dark") document.documentElement.setAttribute("data-theme", saved);
     const themeBtn = document.getElementById("themeBtn");
+    function updateBtnIcon(){
+      if(!themeBtn) return;
+      const cur = document.documentElement.getAttribute("data-theme");
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const effectiveCur = cur || (prefersDark ? "dark" : "light");
+      themeBtn.textContent = effectiveCur === "dark" ? "☀️" : "🌙";
+    }
     if(themeBtn){
-      themeBtn.addEventListener("click", function(){
+      updateBtnIcon();
+      function doToggle(){
         const cur = document.documentElement.getAttribute("data-theme");
         const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
         const effectiveCur = cur || (prefersDark ? "dark" : "light");
         const next = effectiveCur === "dark" ? "light" : "dark";
         document.documentElement.setAttribute("data-theme", next);
         try{ localStorage.setItem("trilha_theme", next); }catch(e){}
-      });
+        updateBtnIcon();
+      }
+      themeBtn.addEventListener("click", doToggle);
     }
   })();
 

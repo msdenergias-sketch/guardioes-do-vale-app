@@ -1,6 +1,6 @@
 // Service worker: sempre busca a versão mais nova da página primeiro (network-first).
 // Só usa o cache se estiver sem internet — assim o app nunca fica "preso" numa versão antiga.
-const CACHE_NAME = "trilha-desbravador-v4";
+const CACHE_NAME = "trilha-desbravador-v5";
 const CORE_ASSETS = ["./index.html", "./manifest.json", "./icon.png"];
 
 self.addEventListener("install", function(event){
