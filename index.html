@@ -232,6 +232,8 @@ button{font-family:inherit}
 .row .idx{font-family:"Oswald";color:var(--muted);font-size:12px;min-width:44px;padding-top:2px;font-variant-numeric:tabular-nums}
 .row .body{flex:1;min-width:0}
 .row .title{font-weight:500;font-size:13.5px}
+.bible-ref{color:var(--rope);text-decoration:underline dotted;cursor:pointer;white-space:nowrap}
+.bible-ref:hover{opacity:.75}
 .row .meta{color:var(--muted);font-size:11.5px;margin-top:2px}
 .row .meta a{color:var(--forest);text-decoration:none;font-weight:500}
 .row .meta a:hover{text-decoration:underline}
@@ -1305,6 +1307,70 @@ button{font-family:inherit}
 
   function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 
+  // ---- referências bíblicas clicáveis ----
+  const BIBLE_BOOK_MAP = {
+    "gênesis":"genesis","genesis":"genesis","êxodo":"exodus","exodo":"exodus","levítico":"leviticus","levitico":"leviticus",
+    "números":"numbers","numeros":"numbers","deuteronômio":"deuteronomy","deuteronomio":"deuteronomy","josué":"joshua","josue":"joshua",
+    "juízes":"judges","juizes":"judges","rute":"ruth","samuel":"samuel","reis":"kings","crônicas":"chronicles","cronicas":"chronicles",
+    "esdras":"ezra","neemias":"nehemiah","ester":"esther","jó":"job","jo":"job","salmo":"psalms","salmos":"psalms",
+    "provérbios":"proverbs","proverbios":"proverbs","eclesiastes":"ecclesiastes","cantares":"song of solomon","cântico dos cânticos":"song of solomon",
+    "isaías":"isaiah","isaias":"isaiah","jeremias":"jeremiah","lamentações":"lamentations","lamentacoes":"lamentations","ezequiel":"ezekiel",
+    "daniel":"daniel","oséias":"hosea","oseias":"hosea","joel":"joel","amós":"amos","amos":"amos","obadias":"obadiah","jonas":"jonah",
+    "miquéias":"micah","miqueias":"micah","naum":"nahum","habacuque":"habakkuk","sofonias":"zephaniah","ageu":"haggai",
+    "zacarias":"zechariah","malaquias":"malachi","mateus":"matthew","marcos":"mark","lucas":"luke","joão":"john","joao":"john",
+    "atos":"acts","romanos":"romans","coríntios":"corinthians","corintios":"corinthians","gálatas":"galatians","galatas":"galatians",
+    "efésios":"ephesians","efesios":"ephesians","filipenses":"philippians","colossenses":"colossians","tessalonicenses":"thessalonians",
+    "timóteo":"timothy","timoteo":"timothy","tito":"titus","filemom":"philemon","hebreus":"hebrews","tiago":"james","pedro":"peter",
+    "judas":"jude","apocalipse":"revelation"
+  };
+  const BIBLE_REF_PATTERN = "\\b((?:I{1,3}|[123])\\s)?(" + Object.keys(BIBLE_BOOK_MAP).sort(function(a,b){return b.length-a.length;}).join("|") + ")\\s(\\d{1,3})(?::(\\d{1,3})(?:-(\\d{1,3}))?)?\\b";
+  const BIBLE_BOOK_REGEX = new RegExp(BIBLE_REF_PATTERN, "gi");
+  function linkifyBibleRefs(text){
+    const safe = esc(text);
+    return safe.replace(BIBLE_BOOK_REGEX, function(m, prefix, book){
+      return '<span class="bible-ref" data-bible-ref="'+esc(m.trim())+'">📖 '+m+'</span>';
+    });
+  }
+  function bibleRefToApiSlug(ref){
+    const m = new RegExp(BIBLE_REF_PATTERN, "i").exec(ref);
+    if(!m) return null;
+    const prefix = (m[1]||"").trim().toUpperCase();
+    const bookKey = m[2].toLowerCase();
+    const bookEn = BIBLE_BOOK_MAP[bookKey];
+    if(!bookEn) return null;
+    const numPrefix = {I:"1", II:"2", III:"3", "1":"1", "2":"2", "3":"3"}[prefix] || "";
+    const chapter = m[3];
+    const verseStart = m[4];
+    const verseEnd = m[5];
+    let slug = (numPrefix ? numPrefix+" " : "") + bookEn + " " + chapter;
+    if(verseStart){ slug += ":"+verseStart; if(verseEnd) slug += "-"+verseEnd; }
+    return slug;
+  }
+  function openBibleVerseModal(ref){
+    showModal('<button class="close-x">✕</button><h3>📖 '+esc(ref)+'</h3><p class="idea-hint" id="bibleLoading">Buscando o texto…</p>');
+    document.getElementById("mCancel") && document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    const slug = bibleRefToApiSlug(ref);
+    if(!slug){
+      document.getElementById("bibleLoading").textContent = "Não consegui identificar essa referência.";
+      return;
+    }
+    const url = "https://bible-api.com/" + encodeURIComponent(slug) + "?translation=almeida";
+    fetch(url).then(function(r){ return r.json(); }).then(function(data){
+      const el = document.getElementById("bibleLoading");
+      if(!el) return;
+      if(data && data.text){
+        el.outerHTML = '<div class="note-text" style="font-size:14px;line-height:1.6">'+esc(data.text.trim())+'</div>'
+          + '<p class="idea-hint">Fonte: bible-api.com (Almeida) — '+esc(data.reference||ref)+'</p>';
+      } else {
+        el.textContent = "Não encontrei esse texto. Verifique se a referência está correta.";
+      }
+    }).catch(function(){
+      const el = document.getElementById("bibleLoading");
+      if(el) el.textContent = "Não foi possível buscar o texto agora (sem internet ou serviço indisponível).";
+    });
+  }
+
   function matches(item, g){
     if(!query) return true;
     const q = query.toLowerCase();
@@ -1412,7 +1478,7 @@ button{font-family:inherit}
     return '<div class="row" data-id="'+it.id+'">'
       + '<div class="idx">'+esc(idxLabel)+'</div>'
       + '<div class="body">'
-        + '<div class="title">'+esc(it.title)+'</div>'
+        + '<div class="title">'+linkifyBibleRefs(it.title)+'</div>'
         + '<div class="meta">'+ (it.specialtyName ? '' : (it.wiki ? '<a href="'+it.wiki+'" target="_blank" rel="noopener">Ver na MDA Wiki ↗</a>' : '') + (it.driveUrl && currentStaff ? (it.wiki ? ' · ' : '') + '<a href="'+it.driveUrl+'" target="_blank" rel="noopener">📁 Abrir pasta (Drive) ↗</a>' : '')) + (file ? ((it.specialtyName?'':' · ')+'<span class="filechip"><span>'+esc(file.name)+'</span>'+(canRemove?'<button data-remove="'+it.id+'" title="Remover anexo">✕</button>':'')+'</span>') : '') + '</div>'
         + noteHtml
       + '</div>'
@@ -3990,6 +4056,11 @@ button{font-family:inherit}
   searchEl.addEventListener("input", function(){
     query = searchEl.value.trim();
     renderList();
+  });
+
+  document.addEventListener("click", function(e){
+    const el = e.target.closest("[data-bible-ref]");
+    if(el) openBibleVerseModal(el.getAttribute("data-bible-ref"));
   });
 
   renderMemberSelect();
