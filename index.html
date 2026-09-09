@@ -195,6 +195,8 @@ button{font-family:inherit}
 .kpi.done b{color:var(--status-done)}
 .kpi.doing b{color:var(--status-doing)}
 .kpi.none b{color:var(--status-none)}
+.kpi.classe b{color:var(--forest)}
+.kpi.classe{min-width:100px}
 
 .sidebar{background:var(--surface);border-right:1px solid var(--line);padding:16px 10px;overflow-y:auto;max-height:calc(100vh - 67px);position:sticky;top:67px}
 .nav-group{margin-bottom:6px}
@@ -366,7 +368,9 @@ button{font-family:inherit}
 @media (max-width:860px){
   .app{grid-template-columns:1fr}
   .topbar{flex-wrap:wrap}
-  .kpis{margin-left:0}
+  .kpis{margin-left:0;flex-wrap:wrap;row-gap:8px}
+  .kpi{min-width:56px;padding:6px 8px}
+  .kpi.classe{min-width:80px}
   .brand-badge{width:73px;height:73px}
   .brand h1{font-size:15px}
   .member-picker{flex-wrap:wrap; justify-content:flex-end; row-gap:8px}
@@ -434,6 +438,7 @@ button{font-family:inherit}
       <div class="kpi done"><b id="kpi-done">0</b><small>Aprovados</small></div>
       <div class="kpi doing"><b id="kpi-doing">0</b><small>Pendentes</small></div>
       <div class="kpi none"><b id="kpi-none">0</b><small>A iniciar</small></div>
+      <div class="kpi classe"><b id="kpi-classe">–</b><small id="kpi-classe-label">Classe atual</small></div>
     </div>
   </div>
   <div class="nav-backdrop" id="navBackdrop"></div>
@@ -1351,6 +1356,24 @@ button{font-family:inherit}
     document.getElementById("kpi-done").textContent = done;
     document.getElementById("kpi-doing").textContent = doing;
     document.getElementById("kpi-none").textContent = none;
+
+    const kpiClasseEl = document.getElementById("kpi-classe");
+    const kpiClasseLabelEl = document.getElementById("kpi-classe-label");
+    if(kpiClasseEl && kpiClasseLabelEl){
+      const info = currentMember ? memberInfo[currentMember] : null;
+      const classeName = info && info.classe;
+      const g = classeName ? clsGroups.find(function(x){ return x.label === classeName; }) : null;
+      if(g && g.items.length){
+        let cd = 0;
+        g.items.forEach(function(it){ if((getStateFor(currentMember, it.id).status||"none") === "aprovado") cd++; });
+        const pct = Math.round((cd/g.items.length)*100);
+        kpiClasseEl.textContent = pct+"%";
+        kpiClasseLabelEl.textContent = classeName+" ("+cd+"/"+g.items.length+")";
+      } else {
+        kpiClasseEl.textContent = "–";
+        kpiClasseLabelEl.textContent = currentMember ? "Sem classe definida" : "Classe atual";
+      }
+    }
   }
 
   // ---- modal helpers ----
@@ -2229,6 +2252,21 @@ button{font-family:inherit}
   }
 
   // ---- dashboard da diretoria (agregado de todos os membros) ----
+  function estimateStorageUsage(){
+    let bytes = 0, count = 0;
+    Object.keys(state).forEach(function(k){
+      const s = state[k];
+      if(s && s.file){
+        count++;
+        if(s.file.dataUrl) bytes += s.file.dataUrl.length * 0.75; // base64 -> bytes aprox.
+        if(s.file.fullDataUrl) bytes += s.file.fullDataUrl.length * 0.75;
+      }
+      if(s && s.note) bytes += s.note.length;
+    });
+    const mb = (bytes / (1024*1024)).toFixed(2);
+    const pct = Math.round((bytes / (1024*1024*1024)) * 100);
+    return {mb:mb, pct:pct, count:count};
+  }
   function openDashboard(){
     const allGroups = [].concat(espGroups, clsGroups);
     const memberStats = membros.map(function(m){
@@ -2257,6 +2295,12 @@ button{font-family:inherit}
       + '<div><b>'+memberStats.reduce(function(s,m){return s+m.done;},0)+'</b><small>Aprovações totais</small></div>'
       + '<div><b>'+memberStats.reduce(function(s,m){return s+m.doing;},0)+'</b><small>Pendentes no momento</small></div>'
     + '</div>';
+
+    const storageInfo = estimateStorageUsage();
+    html += '<h4>Uso de armazenamento (banco de dados do app)</h4>';
+    html += '<div class="progress-row"><div class="plabel"><span>'+storageInfo.mb+' MB usados de ~1024 MB grátis</span><b>'+storageInfo.pct+'%</b></div>'
+      + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(storageInfo.pct,100)+'%'+(storageInfo.pct>80?';background:var(--status-none)':'')+'"></div></div></div>';
+    html += '<div class="idea-hint">'+storageInfo.count+' anexo(s) (fotos/arquivos) guardados no total. '+(storageInfo.pct>80?'Está chegando perto do limite gratuito — considere apagar anexos de anos/atividades já encerradas.':'Bem tranquilo, ainda sobra bastante espaço.')+'</div>';
 
     html += '<h4>Ranking geral (por aprovações)</h4>';
     html += memberStats.length ? memberStats.slice(0,20).map(function(m,i){
