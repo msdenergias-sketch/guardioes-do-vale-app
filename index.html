@@ -2534,6 +2534,7 @@ button{font-family:inherit}
       + '<button class="btn" id="openPresentationBtn">🖥 Modo Apresentação</button>'
       + '<button class="btn" id="exportClubPdfBtn">📄 Relatório do Clube (PDF)</button>'
       + '<button class="btn" id="openChamadaBtn">📣 Chamada da Unidade</button>'
+      + '<button class="btn" id="exportBackupBtn">💾 Backup completo (JSON)</button>'
       + '</div>';
 
     html += '<h4>Pendentes de aprovação ('+pendings.length+')</h4>';
@@ -2787,6 +2788,40 @@ button{font-family:inherit}
     document.getElementById("openPresentationBtn").addEventListener("click", function(){ closeModal(); openPresentation(); });
     document.getElementById("exportClubPdfBtn").addEventListener("click", exportClubPdf);
     document.getElementById("openChamadaBtn").addEventListener("click", function(){ closeModal(); openChamada(); });
+    document.getElementById("exportBackupBtn").addEventListener("click", exportFullBackup);
+  }
+  function exportFullBackup(){
+    try{
+      const backup = {
+        exportedAt: new Date().toISOString(),
+        club: "Clube Guardiões do Vale",
+        membros: membros,
+        memberInfo: memberInfo,
+        state: state,
+        staffAccounts: staffAccounts,
+        parentAccounts: parentAccounts,
+        logEntries: logEntries,
+        clubIdeas: clubIdeas,
+        usedIdeas: usedIdeas,
+        chamadas: chamadas
+      };
+      const json = JSON.stringify(backup, null, 2);
+      const blob = new Blob([json], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0,10);
+      a.href = url;
+      a.download = "backup-trilha-desbravador-"+stamp+".json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 8000);
+      showModal('<button class="close-x">✕</button><h3>Backup baixado</h3><p>O arquivo <b>backup-trilha-desbravador-'+stamp+'.json</b> foi salvo no aparelho, com todos os cadastros, progresso, histórico e chamadas. Guarde em um lugar seguro (ex.: Google Drive) como cópia de segurança.</p><div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>');
+      document.getElementById("mCancel").addEventListener("click", closeModal);
+      modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    }catch(e){
+      alert("Não foi possível gerar o backup neste navegador.");
+    }
   }
 
   function logRowHtml(entry){
