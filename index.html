@@ -910,10 +910,18 @@ button{font-family:inherit}
   // ---- histórico de aprovações ----
   let logEntries = [];
   function persistLogEntry(entry){
+    const id = Date.now() + "_" + Math.random().toString(36).slice(2,8);
+    entry.id = id;
     logEntries.unshift(entry);
     if(!db) return;
-    const id = Date.now() + "_" + Math.random().toString(36).slice(2,8);
     db.collection("trilha_log").doc(id).set(entry).catch(function(){});
+  }
+  function toggleLogSeen(id, seen){
+    const e = logEntries.find(function(x){ return x.id === id; });
+    if(!e) return;
+    e.seenByParent = seen;
+    e.seenAt = seen ? Date.now() : null;
+    if(db) db.collection("trilha_log").doc(id).set(e).catch(function(){});
   }
 
   // ---- chamada digital da unidade ----
@@ -1043,7 +1051,7 @@ button{font-family:inherit}
       try{
         const lres = await db.collection("trilha_log").list();
         const ldocs = (lres && lres.docs) || lres || [];
-        logEntries = ldocs.map(function(d){ return d.data || d; }).sort(function(a,b){ return (b.at||0) - (a.at||0); });
+        logEntries = ldocs.map(function(d){ const data = d.data || d; if(!data.id) data.id = d.id || d.docId; return data; }).sort(function(a,b){ return (b.at||0) - (a.at||0); });
       }catch(e){ /* no log yet */ }
       try{
         const cidoc = await db.collection("trilha_ideas").doc("custom").get();
@@ -2337,21 +2345,41 @@ button{font-family:inherit}
 
   function openParentPanel(){
     if(!currentParent){ openParentLogin(); return; }
-    let html = '<button class="close-x">✕</button>';
-    html += '<h3>Área do Responsável</h3>';
-    html += '<div class="staff-session"><span>Acompanhando <b>'+esc(currentParent.childName)+'</b></span><button class="btn" id="parentLogout">Sair</button></div>';
-    html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="parentSeeProgress">Ver progresso completo</button></div>';
-    showModal(html);
-    document.getElementById("parentLogout").addEventListener("click", function(){
-      logoutParent();
-      closeModal();
-      renderMemberSelect();
-      render();
-    });
-    document.getElementById("parentSeeProgress").addEventListener("click", function(){
-      closeModal();
-      openProgressModal();
-    });
+    function render(){
+      const childApprovals = logEntries.filter(function(e){ return e.member === currentParent.childName && e.action === "aprovado"; }).slice(0, 20);
+      let html = '<button class="close-x">✕</button>';
+      html += '<h3>Área do Responsável</h3>';
+      html += '<div class="staff-session"><span>Acompanhando <b>'+esc(currentParent.childName)+'</b></span><button class="btn" id="parentLogout">Sair</button></div>';
+      html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="parentSeeProgress">Ver progresso completo</button></div>';
+      html += '<h4>Aprovações recentes</h4>';
+      html += childApprovals.length ? childApprovals.map(function(e){
+        const when = e.at ? new Date(e.at).toLocaleDateString("pt-BR") : "";
+        return '<div class="staff-item"><span>'+esc(e.itemTitle)+' <small style="color:var(--muted)">('+esc(e.groupLabel||"")+' · '+when+')</small></span>'
+          + '<span>'+(e.seenByParent
+            ? '<span class="idea-hint" style="margin:0">👁️ visto</span>'
+            : '<button class="idea-mini-btn" data-mark-seen="'+esc(e.id||"")+'">👁️ Marcar como visto</button>')+'</span></div>';
+      }).join("") : '<div class="pending-empty">Nenhuma aprovação registrada ainda.</div>';
+      showModal(html);
+      modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+      document.getElementById("parentLogout").addEventListener("click", function(){
+        logoutParent();
+        closeModal();
+        renderMemberSelect();
+        render();
+      });
+      document.getElementById("parentSeeProgress").addEventListener("click", function(){
+        closeModal();
+        openProgressModal();
+      });
+      modalRoot.querySelectorAll("[data-mark-seen]").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          const id = btn.getAttribute("data-mark-seen");
+          if(id) toggleLogSeen(id, true);
+          render();
+        });
+      });
+    }
+    render();
   }
 
   function openNoteModal(id){
@@ -2534,6 +2562,7 @@ button{font-family:inherit}
       + '<button class="btn" id="openPresentationBtn">🖥 Modo Apresentação</button>'
       + '<button class="btn" id="exportClubPdfBtn">📄 Relatório do Clube (PDF)</button>'
       + '<button class="btn" id="openChamadaBtn">📣 Chamada da Unidade</button>'
+      + '<button class="btn" id="openUnitRankingBtn">🏆 Ranking das Unidades</button>'
       + '<button class="btn" id="exportBackupBtn">💾 Backup completo (JSON)</button>'
       + '</div>';
 
@@ -2788,7 +2817,41 @@ button{font-family:inherit}
     document.getElementById("openPresentationBtn").addEventListener("click", function(){ closeModal(); openPresentation(); });
     document.getElementById("exportClubPdfBtn").addEventListener("click", exportClubPdf);
     document.getElementById("openChamadaBtn").addEventListener("click", function(){ closeModal(); openChamada(); });
+    document.getElementById("openUnitRankingBtn").addEventListener("click", function(){ closeModal(); openUnitRanking(); });
     document.getElementById("exportBackupBtn").addEventListener("click", exportFullBackup);
+  }
+  function openUnitRanking(){
+    const rows = UNIDADES.map(function(u){
+      const hist = chamadaHistoryFor(u);
+      const scores = [];
+      hist.forEach(function(rec){
+        Object.keys(rec.membros||{}).forEach(function(m){
+          const t = rec.membros[m].total;
+          if(typeof t === "number") scores.push(t);
+        });
+      });
+      const avg = scores.length ? (scores.reduce(function(a,b){return a+b;},0)/scores.length) : null;
+      return {unidade:u, avg:avg, chamadas:hist.length};
+    }).sort(function(a,b){
+      if(a.avg === null && b.avg === null) return 0;
+      if(a.avg === null) return 1;
+      if(b.avg === null) return -1;
+      return b.avg - a.avg;
+    });
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>🏆 Ranking das Unidades</h3>';
+    html += '<p class="idea-hint" style="margin-top:-4px">Média de pontos por desbravador em todas as Chamadas registradas de cada unidade.</p>';
+    html += rows.map(function(r, i){
+      if(r.avg === null){
+        return '<div class="staff-item"><span>'+esc(r.unidade)+'</span><span style="color:var(--muted)">Sem chamadas registradas</span></div>';
+      }
+      return '<div class="progress-row"><div class="plabel"><span><b>'+(i+1)+'º</b> '+esc(r.unidade)+' <small style="color:var(--muted);font-weight:400">('+r.chamadas+' chamada(s))</small></span><b>'+r.avg.toFixed(1)+' pts/média</b></div>'
+        + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(100, Math.round((r.avg/CHAMADA_MAX_TOTAL)*100))+'%;background:var(--rope)"></div></div></div>';
+    }).join("");
+    html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
   }
   function exportFullBackup(){
     try{
@@ -2827,13 +2890,58 @@ button{font-family:inherit}
   function logRowHtml(entry){
     const isOk = entry.action === "aprovado";
     const when = entry.at ? new Date(entry.at).toLocaleString("pt-BR") : "";
+    const seenTag = entry.seenByParent ? ' <span class="idea-hint" style="margin:0">👁️ visto pela família'+(entry.seenAt?' em '+new Date(entry.seenAt).toLocaleDateString("pt-BR"):'')+'</span>' : '';
     return '<div class="log-row">'
-      + '<div class="lwhat">'+esc(entry.member)+' · '+esc(entry.itemTitle)+' <span class="'+(isOk?"lok":"lno")+'">'+(isOk?"✓ aprovado":"✕ recusado")+'</span></div>'
+      + '<div class="lwhat">'+esc(entry.member)+' · '+esc(entry.itemTitle)+' <span class="'+(isOk?"lok":"lno")+'">'+(isOk?"✓ aprovado":"✕ recusado")+'</span>'+seenTag+'</div>'
       + '<div class="lmeta">'+esc(entry.groupLabel||"")+' · por '+esc(entry.by||"—")+' · '+when+'</div>'
     + '</div>';
   }
 
   // ---- painel do clube: membros x tarefas cumpridas/pendentes/faltando ----
+  function lastChamadaAlerts(){
+    const out = [];
+    UNIDADES.forEach(function(u){
+      const hist = chamadaHistoryFor(u);
+      if(!hist.length) return;
+      const last = hist[hist.length-1];
+      Object.keys(last.membros||{}).forEach(function(m){
+        const resp = last.membros[m];
+        const issues = [];
+        if(resp.taxa === "b") issues.push("taxa atrasada");
+        if(resp.taxa === "c") issues.push("taxa não contribuída");
+        if(resp.biblico === "c") issues.push("ano bíblico atrasado (+5 cap.)");
+        if(resp.biblico === "d") issues.push("não está fazendo o ano bíblico");
+        if(issues.length) out.push({member:m, unidade:u, data:last.data, issues:issues});
+      });
+    });
+    return out;
+  }
+  function generateClubPanelReport(rows){
+    if(!rows.length){ alert("Nenhum desbravador para exportar com esse filtro."); return; }
+    const logoEl = document.querySelector(".brand-badge img");
+    const logoSrc = logoEl ? logoEl.getAttribute("src") : "";
+    const style = '<style>'
+      + 'body{font-family:Arial,sans-serif;padding:28px;color:#22271e}'
+      + '.rhead{display:flex;align-items:center;gap:14px;border-bottom:3px solid #2f4f3a;padding-bottom:12px;margin-bottom:16px}'
+      + '.rhead img{width:56px;height:56px;object-fit:contain}'
+      + '.rhead h1{font-size:18px;margin:0}'
+      + '.rhead .club{font-size:12px;color:#8a5b2e;font-weight:600;margin-top:2px}'
+      + 'table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}'
+      + 'th,td{border:1px solid #b9c0ac;padding:6px 8px;text-align:left}'
+      + 'th{background:#2f4f3a;color:#fff}'
+      + '@media print{table{page-break-inside:auto} tr{page-break-inside:avoid}}'
+      + '</style>';
+    let body = '<div class="rhead">'
+        + (logoSrc ? '<img src="'+logoSrc+'" alt="logo">' : '')
+        + '<div><h1>Painel do Clube — '+new Date().toLocaleDateString("pt-BR")+'</h1><div class="club">Clube Guardiões do Vale — Trilha do Desbravador</div></div>'
+      + '</div>';
+    body += '<table><thead><tr><th>Desbravador(a)</th><th>Unidade</th><th>Classe do ano</th><th>Aprovados</th><th>Pendentes</th><th>Total</th><th>%</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      body += '<tr><td>'+esc(r.name)+'</td><td>'+esc(r.unidade||"—")+'</td><td>'+esc(r.classe||"sem classe")+'</td><td>'+r.done+'</td><td>'+r.doing+'</td><td>'+r.total+'</td><td>'+r.pct+'%</td></tr>';
+    });
+    body += '</tbody></table>';
+    downloadReport("Painel do Clube - "+new Date().toISOString().slice(0,10), body, style);
+  }
   function openClubPanel(){
     function computeRows(){
       return membros.map(function(m){
@@ -2863,10 +2971,17 @@ button{font-family:inherit}
       let html = '<button class="close-x">✕</button>';
       html += '<h3>Painel do Clube</h3>';
       html += '<p class="idea-hint" style="margin-top:-4px">Ordenado do mais atrasado para o mais adiantado, considerando a classe do ano de cada um. Clique num desbravador para ver o que falta.</p>';
+      const alerts = lastChamadaAlerts();
+      if(alerts.length){
+        html += '<div class="note-text" style="margin-bottom:14px"><b>⚠️ '+alerts.length+' desbravador(es) com pendência na última Chamada</b>'
+          + '<ul class="idea-list">' + alerts.map(function(a){ return '<li><span class="idea-text">'+esc(a.member)+' ('+esc(a.unidade)+') — '+esc(a.issues.join(", "))+'</span></li>'; }).join("") + '</ul>'
+        + '</div>';
+      }
       html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">';
       html += '<select id="cpUnidade"><option value="">Todas as unidades</option>' + UNIDADES.map(function(u){ return '<option value="'+esc(u)+'"'+(clubPanelState.unidade===u?" selected":"")+'>'+esc(u)+'</option>'; }).join("") + '</select>';
       const classeOptions = clsGroups.map(function(g){ return g.label; });
       html += '<select id="cpClasse"><option value="">Todas as classes</option>' + classeOptions.map(function(c){ return '<option value="'+esc(c)+'"'+(clubPanelState.classe===c?" selected":"")+'>'+esc(c)+'</option>'; }).join("") + '</select>';
+      html += '<button class="btn" id="cpExportBtn" style="margin-left:auto">📄 Exportar esta lista</button>';
       html += '</div>';
       if(!rows.length){
         html += '<div class="pending-empty">Nenhum desbravador encontrado com esse filtro.</div>';
@@ -2883,6 +2998,8 @@ button{font-family:inherit}
             if(r.doing>0) bits.push(r.doing+' requisito(s) aguardando aprovação');
             if(r.missing.length) bits.push('Próximos a fazer: '+r.missing.map(function(t){return esc(t);}).join(" · "));
             if(!bits.length) bits.push(r.total ? 'Sem pendências no momento — só falta aprovar o que já foi enviado.' : 'Sem classe do ano definida para este desbravador.');
+            const att = memberAttendanceStats(r.name);
+            if(att.total > 0) bits.push('Frequência na Chamada: '+att.present+'/'+att.total+' reuniões ('+Math.round((att.present/att.total)*100)+'%)');
             block += '<div class="idea-hint" style="margin:2px 0 6px 4px">'+bits.join(" · ")+'</div>';
             if(r.classe && r.total > r.done){
               block += '<div style="margin:0 0 12px 4px"><button class="linklike" data-cp-sheet="'+esc(r.name)+'">🖨️ Ficha do que falta ('+(r.total-r.done)+' itens)</button></div>';
@@ -2896,6 +3013,7 @@ button{font-family:inherit}
       modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
       document.getElementById("cpUnidade").addEventListener("change", function(){ clubPanelState.unidade = this.value; render(); });
       document.getElementById("cpClasse").addEventListener("change", function(){ clubPanelState.classe = this.value; render(); });
+      document.getElementById("cpExportBtn").addEventListener("click", function(){ generateClubPanelReport(rows); });
       modalRoot.querySelectorAll("[data-cp-row]").forEach(function(el){
         el.addEventListener("click", function(){
           const name = el.getAttribute("data-cp-row");
@@ -2929,6 +3047,19 @@ button{font-family:inherit}
     const d = new Date();
     return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
   }
+  function memberAttendanceStats(member){
+    const info = memberInfo[member] || {};
+    if(!info.unidade) return {present:0, total:0};
+    const hist = chamadaHistoryFor(info.unidade);
+    let present = 0, total = 0;
+    hist.forEach(function(rec){
+      const resp = rec.membros && rec.membros[member];
+      if(!resp || !resp.freq) return;
+      total++;
+      if(resp.freq === "a" || resp.freq === "b") present++;
+    });
+    return {present:present, total:total};
+  }
   function chamadaHistoryFor(unidade){
     return Object.keys(chamadas).filter(function(id){ return chamadas[id] && chamadas[id].unidade === unidade; })
       .map(function(id){ return chamadas[id]; })
@@ -2961,7 +3092,7 @@ button{font-family:inherit}
         + '</div>';
       }
       h += hist.map(function(rec){
-        return '<div class="staff-item"><span>'+esc(rec.data)+' — total da unidade: <b>'+(rec.unitTotal||0)+' pts</b></span>'
+        return '<div class="staff-item"><span>'+(rec.foto?'<img src="'+rec.foto+'" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px">':'')+esc(rec.data)+' — total da unidade: <b>'+(rec.unitTotal||0)+' pts</b></span>'
           + '<span><button class="idea-mini-btn" data-ch-open="'+esc(rec.unidade)+'|'+esc(rec.data)+'">✏️ Abrir</button></span></div>';
       }).join("");
       wrap.innerHTML = h;
@@ -3052,6 +3183,7 @@ button{font-family:inherit}
       });
     const expanded = new Set();
     if(members.length) expanded.add(members[0]);
+    let fotoData = (existing && existing.foto) || null;
     function render(){
       let html = '<button class="close-x">✕</button>';
       html += '<h3>📣 Chamada — '+esc(unidade)+' · '+esc(data)+'</h3>';
@@ -3064,6 +3196,12 @@ button{font-family:inherit}
         return;
       }
       html += '<p class="idea-hint" style="margin-top:-4px">Toque no nome do desbravador para abrir os critérios. O item 7 (Classe/Especialidade) é preenchido automaticamente com o progresso já registrado no app.</p>';
+      html += '<div class="field" style="display:flex;align-items:center;gap:10px">'
+        + (fotoData ? '<img src="'+fotoData+'" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px">' : '')
+        + '<div><button class="btn" id="chFotoBtn" type="button">📷 '+(fotoData?"Trocar foto da unidade":"Anexar foto da unidade")+'</button> '
+        + (fotoData ? '<button class="btn" id="chFotoRemove" type="button">🗑️ Remover</button>' : '')
+        + '<input type="file" accept="image/*" id="chFotoInput" hidden></div>'
+      + '</div>';
       let unitTotal = 0;
       html += '<div class="chamada-cards">';
       html += members.map(function(m){
@@ -3109,6 +3247,18 @@ button{font-family:inherit}
       showModal(html);
       document.getElementById("mCancel").addEventListener("click", closeModal);
       modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+      document.getElementById("chFotoBtn").addEventListener("click", function(){ document.getElementById("chFotoInput").click(); });
+      document.getElementById("chFotoInput").addEventListener("change", function(e){
+        const file = e.target.files && e.target.files[0];
+        if(!file) return;
+        readFile(file, function(res){
+          if(!res.isImage){ alert("Escolha um arquivo de imagem."); return; }
+          fotoData = res.dataUrl;
+          render();
+        });
+      });
+      const fotoRemoveBtn = document.getElementById("chFotoRemove");
+      if(fotoRemoveBtn) fotoRemoveBtn.addEventListener("click", function(){ fotoData = null; render(); });
       modalRoot.querySelectorAll("[data-ch-toggle]").forEach(function(el){
         el.addEventListener("click", function(){
           const m = el.getAttribute("data-ch-toggle");
@@ -3147,7 +3297,7 @@ button{font-family:inherit}
           unitTotalNow += resp.total;
           membrosData[m] = resp;
         });
-        const rec = {unidade:unidade, data:data, membros:membrosData, unitTotal:unitTotalNow, savedAt:Date.now(), savedBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—"};
+        const rec = {unidade:unidade, data:data, membros:membrosData, unitTotal:unitTotalNow, foto:fotoData||null, savedAt:Date.now(), savedBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—"};
         persistChamada(id, rec);
         showModal('<button class="close-x">✕</button><h3>Chamada salva!</h3><p>Chamada de <b>'+esc(unidade)+'</b> em '+esc(data)+' salva com total de <b>'+unitTotalNow+' pts</b>.</p><div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>');
         document.getElementById("mCancel").addEventListener("click", closeModal);
