@@ -3402,6 +3402,28 @@ button{font-family:inherit}
   }
   function dateKey(y,m,d){ return y+"-"+String(m+1).padStart(2,"0")+"-"+String(d).padStart(2,"0"); }
   function classScheduleForDay(y,m,d){ return CLASS_SCHEDULE_BY_DATE[dateKey(y,m,d)] || null; }
+  function birthdaysInMonth(monthIdx){
+    const out = [];
+    membros.forEach(function(m){
+      const b = (memberInfo[m]||{}).birth;
+      if(!b) return;
+      const parts = b.split("-");
+      if(parts.length !== 3) return;
+      const bm = parseInt(parts[1],10) - 1;
+      if(bm !== monthIdx) return;
+      out.push({name:m, day:parseInt(parts[2],10), tipo:"Desbravador(a)"});
+    });
+    staffAccounts.forEach(function(a){
+      const b = a.birth;
+      if(!b) return;
+      const parts = b.split("-");
+      if(parts.length !== 3) return;
+      const bm = parseInt(parts[1],10) - 1;
+      if(bm !== monthIdx) return;
+      out.push({name:a.name||a.username, day:parseInt(parts[2],10), tipo:"Diretoria"});
+    });
+    return out.sort(function(a,b){ return a.day - b.day; });
+  }
   function renderCalendarModal(){
     const y = calViewYear, m = calViewMonth;
     const firstDay = new Date(y, m, 1).getDay();
@@ -3463,6 +3485,11 @@ button{font-family:inherit}
       html += '<div class="cal-legend">'+CLUB_EVENT_LEGEND.map(function(l){ return '<span class="cal-legend-item"><span class="cal-dot cal-dot-'+l.cat+'"></span>'+esc(l.label)+'</span>'; }).join("")+'</div>';
       html += '<div class="idea-section-label" style="margin-top:14px">Horários fixos</div>';
       html += '<ul class="idea-list">'+CLUB_SCHEDULE_NOTES.map(function(n){ return '<li><span class="idea-text">'+esc(n)+'</span></li>'; }).join("")+'</ul>';
+      const bdays = birthdaysInMonth(m);
+      html += '<div class="idea-section-label" style="margin-top:14px">🎂 Aniversariantes de '+CAL_MONTH_NAMES[m]+'</div>';
+      html += bdays.length
+        ? '<ul class="idea-list">'+bdays.map(function(b){ return '<li><span class="idea-text">'+b.day+' — '+esc(b.name)+' <small style="color:var(--muted)">('+esc(b.tipo)+')</small></span></li>'; }).join("")+'</ul>'
+        : '<div class="idea-hint">Ninguém faz aniversário neste mês (ou a data de nascimento ainda não foi cadastrada).</div>';
     }
     showModal(html);
     modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
