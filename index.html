@@ -403,9 +403,8 @@ button{font-family:inherit}
 }
 
 @media print{
-  body *{visibility:hidden}
-  #printArea, #printArea *{visibility:visible}
-  #printArea{position:absolute;top:0;left:0;width:100%}
+  .app, #modalRoot, .nav-fab, .nav-backdrop{display:none !important}
+  #printArea{display:block !important; position:static; width:100%}
 }
 
 @media (max-width:860px){
