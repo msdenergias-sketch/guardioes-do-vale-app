@@ -2423,6 +2423,7 @@ button{font-family:inherit}
     html += '<div class="field"><label>Classe atual</label><select id="editMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'"'+(info.classe===c?" selected":"")+'>'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("editMemberConcl", info.concluidas||[], Object.keys(CLASS_MIN_AGE))+'</div>';
     html += '<div class="field"><label>Instrutor(a) responsável</label><input type="text" id="editMemberResp" value="'+esc(info.responsavel||"")+'" placeholder="Nome do instrutor/conselheiro"></div>';
+    html += '<div class="field"><label>Conselheiro(a) responsável</label><input type="text" id="editMemberConselheiro" value="'+esc(info.conselheiro||"")+'" placeholder="Nome do conselheiro da unidade"></div>';
     html += '<div class="field"><label>Batismo</label><select id="editMemberBatismo"><option value="">Não informado</option><option value="sim"'+(info.batismo===true?" selected":"")+'>Sim</option><option value="nao"'+(info.batismo===false?" selected":"")+'>Não</option></select></div>';
     html += '<div class="idea-hint" id="editMemberSuggestion">'+(info.birth ? (function(){ const s = suggestClassForAge(calcAge(info.birth)); return s ? s.text : ""; })() : "")+'</div>';
     html += '<div class="actions-row"><button class="btn primary" id="saveMemberInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
@@ -2436,7 +2437,7 @@ button{font-family:inherit}
     });
     document.getElementById("saveMemberInfoBtn").addEventListener("click", function(){
       const batismoVal = document.getElementById("editMemberBatismo").value;
-      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
+      memberInfo[name] = {birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, conselheiro:document.getElementById("editMemberConselheiro").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
       persistMemberInfo();
       openStaffPanel();
     });
@@ -2476,6 +2477,7 @@ button{font-family:inherit}
     html += '<div class="field"><label>Classe atual</label><select id="newMemberClasse"><option value="">Selecione…</option>' + Object.keys(CLASS_MIN_AGE).map(function(c){ return '<option value="'+c+'">'+c+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>Classes já concluídas (pode marcar mais de uma)</label>'+classCheckboxesHtml("newMemberConcl", [], Object.keys(CLASS_MIN_AGE))+'</div>';
     html += '<div class="field"><label>Instrutor(a) responsável</label><input type="text" id="newMemberResp" placeholder="Nome do instrutor/conselheiro"></div>';
+    html += '<div class="field"><label>Conselheiro(a) responsável</label><input type="text" id="newMemberConselheiro" placeholder="Nome do conselheiro da unidade"></div>';
     html += '<div class="field"><label>Batismo</label><select id="newMemberBatismo"><option value="">Não informado</option><option value="sim">Sim</option><option value="nao">Não</option></select></div>';
     html += '<div class="idea-hint" id="newMemberSuggestion"></div>';
     html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="addMemberBtn">Adicionar membro</button></div>';
@@ -2599,10 +2601,11 @@ button{font-family:inherit}
       const classe = document.getElementById("newMemberClasse").value;
       const concluidas = getSelectedClasses("newMemberConcl", Object.keys(CLASS_MIN_AGE));
       const responsavel = document.getElementById("newMemberResp").value.trim();
+      const conselheiro = document.getElementById("newMemberConselheiro").value.trim();
       const batismoVal = document.getElementById("newMemberBatismo").value;
       const batismo = batismoVal==="sim"?true:(batismoVal==="nao"?false:null);
       if(membros.indexOf(name) === -1){ membros.push(name); persistMembros(); }
-      if(birth || unidade || cargoUnidade || classe || concluidas.length || responsavel || batismo!==null){ memberInfo[name] = {birth:birth||null, unidade:unidade||null, cargoUnidade:cargoUnidade||null, classe:classe||null, concluidas:concluidas, responsavel:responsavel||null, batismo:batismo}; persistMemberInfo(); }
+      if(birth || unidade || cargoUnidade || classe || concluidas.length || responsavel || conselheiro || batismo!==null){ memberInfo[name] = {birth:birth||null, unidade:unidade||null, cargoUnidade:cargoUnidade||null, classe:classe||null, concluidas:concluidas, responsavel:responsavel||null, conselheiro:conselheiro||null, batismo:batismo}; persistMemberInfo(); }
       renderMemberSelect();
       render();
       openStaffPanel();
