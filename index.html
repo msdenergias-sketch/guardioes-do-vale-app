@@ -138,8 +138,8 @@ button{font-family:inherit}
 .brand{display:flex;align-items:center;gap:14px;flex-shrink:0}
 .brand-badge{width:96px;height:96px;flex-shrink:0}
 .brand-badge img{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
-.splash-screen{position:fixed;inset:0;z-index:9999;background:linear-gradient(160deg,#8a5b2e,#2f4f3a);display:flex;align-items:center;justify-content:center;flex-direction:column;animation:splashFadeOut .7s ease forwards;animation-delay:2s}
-.splash-logo{width:130px;height:130px;object-fit:contain;filter:drop-shadow(0 6px 14px rgba(0,0,0,.35));animation:splashPop .9s cubic-bezier(.34,1.56,.64,1)}
+.splash-screen{position:fixed;inset:0;z-index:9999;background:linear-gradient(160deg,#8a5b2e,#2f4f3a);display:flex;align-items:center;justify-content:center;flex-direction:column;animation:splashFadeOut .7s ease forwards;animation-delay:4s}
+.splash-logo{width:260px;height:260px;object-fit:contain;filter:drop-shadow(0 6px 14px rgba(0,0,0,.35));animation:splashPop .9s cubic-bezier(.34,1.56,.64,1)}
 .splash-title{color:#fff;font-size:24px;font-weight:800;margin-top:16px;opacity:0;text-align:center;animation:splashTextIn .6s ease forwards;animation-delay:.45s}
 .splash-sub{color:#fff;opacity:0;font-size:14px;margin-top:4px;text-align:center;animation:splashTextIn .6s ease forwards;animation-delay:.7s}
 @keyframes splashPop{0%{transform:scale(.4) rotate(-8deg);opacity:0}60%{transform:scale(1.1) rotate(2deg);opacity:1}100%{transform:scale(1) rotate(0)}}
@@ -4662,7 +4662,7 @@ button{font-family:inherit}
   setTimeout(function(){
     const splash = document.getElementById("splashScreen");
     if(splash) splash.remove();
-  }, 2800);
+  }, 4800);
 
   renderMemberSelect();
   render();
