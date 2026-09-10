@@ -501,6 +501,7 @@ button{font-family:inherit}
       <div class="kpi classe"><b id="kpi-classe">–</b><small id="kpi-classe-label">Classe atual</small></div>
     </div>
   </div>
+  <div id="noticeBoard"></div>
   <div class="nav-backdrop" id="navBackdrop"></div>
   <div class="sidebar" id="sidebar"></div>
   <div class="main" id="main">
@@ -833,13 +834,37 @@ button{font-family:inherit}
     }catch(e){}
   })();
 
-  function findStaff(username, password){
-    return staffAccounts.find(function(a){
-      return a.username.toLowerCase() === String(username||"").toLowerCase() && a.password === password;
-    }) || null;
+  // Senhas: contas novas guardam apenas o hash SHA-256 (nunca o texto puro).
+  // Contas antigas ainda têm o campo "password" em texto puro; ao logar com
+  // sucesso, migramos automaticamente para passwordHash e apagamos o texto puro.
+  async function sha256Hex(str){
+    const enc = new TextEncoder().encode(String(str));
+    const buf = await crypto.subtle.digest("SHA-256", enc);
+    return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,"0"); }).join("");
   }
-  function loginStaff(username, password){
-    const found = findStaff(username, password);
+  async function setAccountPassword(account, plain){
+    account.passwordHash = await sha256Hex(plain);
+    delete account.password;
+  }
+  async function verifyAccountPassword(account, plain){
+    if(!account) return false;
+    if(account.passwordHash) return account.passwordHash === await sha256Hex(plain);
+    if(account.password !== undefined){
+      if(account.password !== plain) return false;
+      await setAccountPassword(account, plain); // migra para hash no primeiro login bem-sucedido
+      return true;
+    }
+    return false;
+  }
+  async function findStaff(username, password){
+    const a = staffAccounts.find(function(a){ return a.username.toLowerCase() === String(username||"").toLowerCase(); });
+    if(!a) return null;
+    const ok = await verifyAccountPassword(a, password);
+    if(ok) persistStaff();
+    return ok ? a : null;
+  }
+  async function loginStaff(username, password){
+    const found = await findStaff(username, password);
     if(found){
       currentStaff = found;
       try{ localStorage.setItem("trilha_staff_logged", found.username); }catch(e){}
@@ -869,13 +894,15 @@ button{font-family:inherit}
       }
     }catch(e){}
   })();
-  function findParent(username, password){
-    return parentAccounts.find(function(a){
-      return a.username.toLowerCase() === String(username||"").toLowerCase() && a.password === password;
-    }) || null;
+  async function findParent(username, password){
+    const a = parentAccounts.find(function(a){ return a.username.toLowerCase() === String(username||"").toLowerCase(); });
+    if(!a) return null;
+    const ok = await verifyAccountPassword(a, password);
+    if(ok) persistParents();
+    return ok ? a : null;
   }
-  function loginParent(username, password){
-    const found = findParent(username, password);
+  async function loginParent(username, password){
+    const found = await findParent(username, password);
     if(found){
       currentParent = found;
       try{ localStorage.setItem("trilha_parent_logged", found.username); }catch(e){}
@@ -958,6 +985,92 @@ button{font-family:inherit}
     chamadas[id] = rec;
     if(!db) return;
     db.collection("trilha_chamadas").doc(id).set(rec).catch(function(){});
+  }
+  let clubNotices = []; // [{id, text, expiresAt, createdBy, createdAt}]
+  function persistClubNotice(entry){
+    const idx = clubNotices.findIndex(function(n){ return n.id === entry.id; });
+    if(idx >= 0) clubNotices[idx] = entry; else clubNotices.unshift(entry);
+    if(db) db.collection("trilha_notices").doc(entry.id).set(entry).catch(function(){});
+  }
+  function deleteClubNotice(id){
+    clubNotices = clubNotices.filter(function(n){ return n.id !== id; });
+    if(db) db.collection("trilha_notices").doc(id).delete().catch(function(){});
+  }
+  function dismissedNoticeIds(){
+    try{ return JSON.parse(localStorage.getItem("trilha_notices_dismissed") || "[]"); }catch(e){ return []; }
+  }
+  function dismissNotice(id){
+    const list = dismissedNoticeIds();
+    if(list.indexOf(id) === -1) list.push(id);
+    try{ localStorage.setItem("trilha_notices_dismissed", JSON.stringify(list)); }catch(e){}
+    renderNoticeBoard();
+  }
+  function activeClubNotices(){
+    const today = todayIso();
+    const dismissed = dismissedNoticeIds();
+    return clubNotices.filter(function(n){ return (!n.expiresAt || n.expiresAt >= today) && dismissed.indexOf(n.id)===-1; });
+  }
+  function upcomingMeetingReminder(){
+    const today = todayIso();
+    const upcoming = CLUB_EVENTS_2026.filter(function(e){ return e.cat === "reuniao" && e.d >= today; }).sort(function(a,b){ return a.d.localeCompare(b.d); });
+    if(!upcoming.length) return null;
+    const next = upcoming[0];
+    const diffDays = Math.round((new Date(next.d+"T00:00:00") - new Date(today+"T00:00:00")) / 86400000);
+    if(diffDays > 2) return null;
+    return {date:next.d, label:next.t, diffDays:diffDays};
+  }
+  function renderNoticeBoard(){
+    const el = document.getElementById("noticeBoard");
+    if(!el) return;
+    let html = "";
+    const meeting = upcomingMeetingReminder();
+    if(meeting){
+      const when = meeting.diffDays === 0 ? "hoje" : (meeting.diffDays === 1 ? "amanhã" : "em "+meeting.diffDays+" dias");
+      html += '<div class="note-banner" style="background:#3f8f5f;color:#fff">📅 <b>'+esc(meeting.label)+'</b> é '+when+' ('+esc(meeting.date.split("-").reverse().join("/"))+')</div>';
+    }
+    const active = activeClubNotices();
+    html += active.map(function(n){
+      return '<div class="note-banner" style="background:var(--rope);color:#fff;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+        + '<span>📌 '+esc(n.text)+(n.expiresAt?' <small style="opacity:.85">(até '+esc(n.expiresAt.split("-").reverse().join("/"))+')</small>':'')+'</span>'
+        + '<button type="button" data-dismiss-notice="'+esc(n.id)+'" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer">✕</button>'
+      + '</div>';
+    }).join("");
+    el.innerHTML = html;
+    el.querySelectorAll("[data-dismiss-notice]").forEach(function(btn){
+      btn.addEventListener("click", function(){ dismissNotice(btn.getAttribute("data-dismiss-notice")); });
+    });
+  }
+  function openNoticeBoardAdmin(){
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>📌 Mural de avisos do clube</h3>';
+    html += '<p class="idea-hint" style="margin-top:-4px">Avisos aparecem no topo do app para todos até a data de validade (ou até serem removidos).</p>';
+    html += '<div class="field"><label>Novo aviso</label><textarea id="noticeText" placeholder="Ex.: Sábado tem acampamento, trazer barraca"></textarea></div>';
+    html += '<div class="field"><label>Válido até (opcional)</label><input type="date" id="noticeExpires"></div>';
+    html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="noticeAddBtn">➕ Publicar aviso</button></div>';
+    html += '<h4>Avisos publicados</h4>';
+    html += clubNotices.length ? clubNotices.map(function(n){
+      return '<div class="staff-item"><span>'+esc(n.text)+(n.expiresAt?' <small style="color:var(--muted)">(até '+esc(n.expiresAt.split("-").reverse().join("/"))+')</small>':'')+'</span><button class="idea-mini-btn" data-notice-remove="'+esc(n.id)+'">🗑️</button></div>';
+    }).join("") : '<div class="pending-empty">Nenhum aviso publicado.</div>';
+    html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    document.getElementById("noticeAddBtn").addEventListener("click", function(){
+      const text = document.getElementById("noticeText").value.trim();
+      if(!text){ alert("Escreva o texto do aviso."); return; }
+      const expiresAt = document.getElementById("noticeExpires").value || null;
+      const entry = {id:"notice_"+Date.now(), text:text, expiresAt:expiresAt, createdBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—", createdAt:Date.now()};
+      persistClubNotice(entry);
+      renderNoticeBoard();
+      openNoticeBoardAdmin();
+    });
+    modalRoot.querySelectorAll("[data-notice-remove]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        deleteClubNotice(btn.getAttribute("data-notice-remove"));
+        renderNoticeBoard();
+        openNoticeBoardAdmin();
+      });
+    });
   }
   let memberChangeLog = []; // [{id, member, field, from, to, by, at}]
   const MEMBER_CHANGE_FIELD_LABELS = {unidade:"Unidade", classe:"Classe do ano", cargoUnidade:"Cargo na unidade", responsavel:"Instrutor(a)", responsavelAssoc:"Instrutor(a) Associado(a)", conselheiro:"Conselheiro(a)", conselheiroAssoc:"Conselheiro(a) Associado(a)"};
@@ -1158,9 +1271,15 @@ button{font-family:inherit}
         const mcdocs = (mcres && mcres.docs) || mcres || [];
         memberChangeLog = mcdocs.map(function(d){ return d.data || d; }).sort(function(a,b){ return (b.at||0)-(a.at||0); });
       }catch(e){ /* nenhuma mudança registrada ainda */ }
+      try{
+        const ntres = await db.collection("trilha_notices").list({limit:200});
+        const ntdocs = (ntres && ntres.docs) || ntres || [];
+        clubNotices = ntdocs.map(function(d){ return d.data || d; }).sort(function(a,b){ return (b.createdAt||0)-(a.createdAt||0); });
+      }catch(e){ /* nenhum aviso publicado ainda */ }
       dbReady = true;
       renderMemberSelect();
       render();
+      renderNoticeBoard();
     }catch(e){ /* no db available: local-only demo */ }
   }
 
@@ -2457,6 +2576,16 @@ button{font-family:inherit}
     body += '</tbody><tfoot><tr><td>Total da unidade</td>' + colTotals.map(function(t){ return '<td>'+t+'</td>'; }).join("") + '<td>'+colTotals.reduce(function(a,b){return a+b;},0)+'</td></tr></tfoot></table>';
     downloadReport("Relatorio anual - Chamada - "+unidade+" - "+year, body, style);
   }
+  function exportMembersRosterCsv(){
+    if(!membros.length){ alert("Nenhum desbravador cadastrado ainda."); return; }
+    const header = ["Nome","Unidade","Cargo na unidade","Gênero","Idade","Classe do ano","Instrutor(a)","Instrutor(a) Associado(a)","Conselheiro(a)","Conselheiro(a) Associado(a)","Batismo"];
+    const rows = [header].concat(membros.slice().sort(function(a,b){return a.localeCompare(b);}).map(function(m){
+      const info = memberInfo[m] || {};
+      const age = info.birth ? calcAge(info.birth) : null;
+      return [m, info.unidade||"", info.cargoUnidade||"", info.genero||"", (age!=null?age:""), info.classe||"", info.responsavel||"", info.responsavelAssoc||"", info.conselheiro||"", info.conselheiroAssoc||"", (info.batismo===true?"Sim":(info.batismo===false?"Não":""))];
+    }));
+    downloadCsv("Cadastro de membros - Guardioes do Vale", rows);
+  }
   function exportProgressPdf(member, p){
     const rows = p.groups.map(function(g){
       return '<tr><td>'+esc(g.label)+'</td><td>'+g.done+'/'+g.total+'</td><td>'+g.pct+'%</td></tr>';
@@ -2550,8 +2679,8 @@ button{font-family:inherit}
     const userInput = document.getElementById("parentUser");
     const passInput = document.getElementById("parentPass");
     userInput.focus();
-    function tryLogin(){
-      if(loginParent(userInput.value.trim(), passInput.value)){
+    async function tryLogin(){
+      if(await loginParent(userInput.value.trim(), passInput.value)){
         renderMemberSelect();
         closeModal();
         render();
@@ -2661,8 +2790,8 @@ button{font-family:inherit}
     const userInput = document.getElementById("staffUser");
     const passInput = document.getElementById("staffPass");
     userInput.focus();
-    function tryLogin(){
-      if(loginStaff(userInput.value.trim(), passInput.value)){ openStaffPanel(); render(); }
+    async function tryLogin(){
+      if(await loginStaff(userInput.value.trim(), passInput.value)){ openStaffPanel(); render(); }
       else { alert("Usuário ou senha incorretos."); }
     }
     document.getElementById("mOk").addEventListener("click", tryLogin);
@@ -2687,7 +2816,7 @@ button{font-family:inherit}
     html += '<h3>Editar cadastro — '+esc(a.name||a.username)+'</h3>';
     html += '<div class="field"><label>Nome</label><input type="text" id="editStaffName" value="'+esc(a.name||"")+'"></div>';
     html += '<div class="field"><label>Usuário</label><input type="text" id="editStaffUser" value="'+esc(a.username||"")+'"></div>';
-    html += '<div class="field"><label>Senha</label><input type="text" id="editStaffPass" value="'+esc(a.password||"")+'"></div>';
+    html += '<div class="field"><label>Nova senha</label><input type="text" id="editStaffPass" value="" placeholder="Deixe em branco para manter a senha atual"></div>';
     html += '<div class="field"><label>Função</label><select id="editStaffRole">' + Object.keys(ROLE_LABELS).map(function(r){ return '<option value="'+r+'"'+(a.role===r?" selected":"")+'>'+esc(ROLE_LABELS[r])+'</option>'; }).join("") + '</select></div>';
     html += '<div class="field"><label>E-mail do Google</label><input type="email" id="editStaffGoogleEmail" value="'+esc(a.googleEmail||"")+'"></div>';
     html += '<div class="field"><label>Gênero (para vínculo de conselheiro(a) por unidade)</label><select id="editStaffGenero"><option value="">Não informado</option><option value="M"'+(a.genero==="M"?" selected":"")+'>Masculino</option><option value="F"'+(a.genero==="F"?" selected":"")+'>Feminino</option></select></div>';
@@ -2698,7 +2827,7 @@ button{font-family:inherit}
     html += '<div class="actions-row"><button class="btn primary" id="saveStaffInfoBtn">Salvar</button><button class="btn" id="mCancel">Fechar</button></div>';
     showModal(html);
     document.getElementById("mCancel").addEventListener("click", closeModal);
-    document.getElementById("saveStaffInfoBtn").addEventListener("click", function(){
+    document.getElementById("saveStaffInfoBtn").addEventListener("click", async function(){
       const newUsername = document.getElementById("editStaffUser").value.trim();
       if(!newUsername){ alert("Usuário não pode ficar vazio."); return; }
       if(newUsername.toLowerCase() !== username.toLowerCase() && staffAccounts.some(function(s){ return s.username.toLowerCase() === newUsername.toLowerCase(); })){
@@ -2707,7 +2836,8 @@ button{font-family:inherit}
       }
       a.name = document.getElementById("editStaffName").value.trim() || newUsername;
       a.username = newUsername;
-      a.password = document.getElementById("editStaffPass").value;
+      const newPass = document.getElementById("editStaffPass").value;
+      if(newPass) await setAccountPassword(a, newPass);
       a.role = document.getElementById("editStaffRole").value;
       a.googleEmail = document.getElementById("editStaffGoogleEmail").value.trim() || null;
       a.genero = document.getElementById("editStaffGenero").value || null;
@@ -2825,10 +2955,12 @@ button{font-family:inherit}
       + '<button class="btn primary" id="openClubPanelBtn">📋 Painel do Clube</button>'
       + '<button class="btn" id="openPresentationBtn">🖥 Modo Apresentação</button>'
       + '<button class="btn" id="exportClubPdfBtn">📄 Relatório do Clube (PDF)</button>'
+      + '<button class="btn" id="exportRosterCsvBtn">📊 Cadastro completo (Excel)</button>'
       + '<button class="btn" id="openChamadaBtn">📣 Chamada da Unidade</button>'
       + '<button class="btn" id="openUnitRankingBtn">🏆 Ranking das Unidades</button>'
       + '<button class="btn" id="openConselheiroBtn">🧑‍🏫 Meus Desbravadores (Conselheiro)</button>'
       + (currentStaff.role === "diretor" ? '<button class="btn" id="setGoalBtn">🎯 Definir meta do mês</button>' : '')
+      + (currentStaff.role === "diretor" ? '<button class="btn" id="noticeBoardBtn">📌 Mural de avisos</button>' : '')
       + '<button class="btn" id="exportBackupBtn">💾 Backup completo (JSON)</button>'
       + (currentStaff.role === "diretor" ? '<button class="btn" id="restoreBackupBtn">📤 Restaurar backup</button><input type="file" accept="application/json" id="restoreBackupInput" hidden>' : '')
       + '</div>';
@@ -2898,10 +3030,10 @@ button{font-family:inherit}
 
     document.getElementById("staffLogout").addEventListener("click", function(){ logoutStaff(); closeModal(); render(); });
 
-    document.getElementById("changePassBtn").addEventListener("click", function(){
+    document.getElementById("changePassBtn").addEventListener("click", async function(){
       const val = document.getElementById("myNewPass").value;
       if(!val){ alert("Digite uma senha."); return; }
-      currentStaff.password = val;
+      await setAccountPassword(currentStaff, val);
       persistStaff();
       alert("Senha atualizada.");
       openStaffPanel();
@@ -3042,7 +3174,7 @@ button{font-family:inherit}
     });
 
     if(currentStaff.role === "diretor"){
-      document.getElementById("addStaffBtn").addEventListener("click", function(){
+      document.getElementById("addStaffBtn").addEventListener("click", async function(){
         const name = document.getElementById("newStaffName").value.trim();
         const username = document.getElementById("newStaffUser").value.trim();
         const password = document.getElementById("newStaffPass").value;
@@ -3058,12 +3190,14 @@ button{font-family:inherit}
         const staffUnidade = document.getElementById("newStaffUnidade").value;
         const staffClasses = getSelectedClasses("newStaffCls");
         const staffConcluidas = getSelectedClasses("newStaffConcl");
-        staffAccounts.push({name:name||username, username:username, password:password, role:role, googleEmail:googleEmail||null, genero:genero||null, birth:staffBirth||null, unidade:staffUnidade||null, classes:staffClasses, concluidas:staffConcluidas});
+        const newAccount = {name:name||username, username:username, role:role, googleEmail:googleEmail||null, genero:genero||null, birth:staffBirth||null, unidade:staffUnidade||null, classes:staffClasses, concluidas:staffConcluidas};
+        await setAccountPassword(newAccount, password);
+        staffAccounts.push(newAccount);
         persistStaff();
         openStaffPanel();
       });
       const addParentBtnEl = document.getElementById("addParentBtn");
-      if(addParentBtnEl) addParentBtnEl.addEventListener("click", function(){
+      if(addParentBtnEl) addParentBtnEl.addEventListener("click", async function(){
         const name = document.getElementById("newParentName").value.trim();
         const username = document.getElementById("newParentUser").value.trim();
         const password = document.getElementById("newParentPass").value;
@@ -3073,7 +3207,9 @@ button{font-family:inherit}
           alert("Já existe um usuário com esse nome.");
           return;
         }
-        parentAccounts.push({name:name||username, username:username, password:password, childName:childName});
+        const newParentAccount = {name:name||username, username:username, childName:childName};
+        await setAccountPassword(newParentAccount, password);
+        parentAccounts.push(newParentAccount);
         persistParents();
         openStaffPanel();
       });
@@ -3083,11 +3219,14 @@ button{font-family:inherit}
     document.getElementById("openClubPanelBtn").addEventListener("click", function(){ closeModal(); openClubPanel(); });
     document.getElementById("openPresentationBtn").addEventListener("click", function(){ closeModal(); openPresentation(); });
     document.getElementById("exportClubPdfBtn").addEventListener("click", exportClubPdf);
+    document.getElementById("exportRosterCsvBtn").addEventListener("click", exportMembersRosterCsv);
     document.getElementById("openChamadaBtn").addEventListener("click", function(){ closeModal(); openChamada(); });
     document.getElementById("openUnitRankingBtn").addEventListener("click", function(){ closeModal(); openUnitRanking(); });
     document.getElementById("openConselheiroBtn").addEventListener("click", function(){ closeModal(); openConselheiroPanel(); });
     const setGoalBtnEl = document.getElementById("setGoalBtn");
     if(setGoalBtnEl) setGoalBtnEl.addEventListener("click", function(){ closeModal(); openSetGoalModal(); });
+    const noticeBoardBtnEl = document.getElementById("noticeBoardBtn");
+    if(noticeBoardBtnEl) noticeBoardBtnEl.addEventListener("click", function(){ closeModal(); openNoticeBoardAdmin(); });
     document.getElementById("exportBackupBtn").addEventListener("click", exportFullBackup);
     const restoreBtn = document.getElementById("restoreBackupBtn");
     if(restoreBtn){
@@ -3205,7 +3344,8 @@ button{font-family:inherit}
         chamadas: chamadas,
         chamadaMensal: chamadaMensal,
         clubGoal: clubGoal,
-        memberChangeLog: memberChangeLog
+        memberChangeLog: memberChangeLog,
+        clubNotices: clubNotices
       };
       const json = JSON.stringify(backup, null, 2);
       const blob = new Blob([json], {type:"application/json"});
@@ -4015,6 +4155,70 @@ button{font-family:inherit}
     const pct = Math.round((bytes / (1024*1024*1024)) * 100);
     return {mb:mb, pct:pct, count:count};
   }
+  function attachmentEntries(){
+    const out = [];
+    Object.keys(state).forEach(function(k){
+      const s = state[k];
+      if(!s || !s.file) return;
+      const sep = k.lastIndexOf("::");
+      if(sep < 0) return;
+      const member = k.slice(0, sep);
+      const id = k.slice(sep + 2);
+      const found = findItemById(id);
+      if(!found) return;
+      let sizeBytes = 0;
+      if(s.file.dataUrl) sizeBytes += s.file.dataUrl.length * 0.75;
+      if(s.file.fullDataUrl) sizeBytes += s.file.fullDataUrl.length * 0.75;
+      out.push({key:k, member:member, id:id, title:found.item.title, groupLabel:found.group.label, status:s.status, sizeKb:Math.round(sizeBytes/1024)});
+    });
+    return out.sort(function(a,b){ return b.sizeKb - a.sizeKb; });
+  }
+  function openAttachmentCleanup(){
+    function render(){
+      const entries = attachmentEntries();
+      let html = '<button class="close-x">✕</button>';
+      html += '<h3>🧹 Limpeza de anexos</h3>';
+      html += '<p class="idea-hint" style="margin-top:-4px">Remove apenas o arquivo/foto anexado — o status (aprovado/pendente) e o histórico continuam intactos. Use para liberar espaço de atividades/anos já encerrados.</p>';
+      if(!entries.length){
+        html += '<div class="pending-empty">Nenhum anexo encontrado.</div>';
+      } else {
+        html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn" id="cleanupSelectAll">Selecionar todos</button></div>';
+        html += entries.map(function(e){
+          return '<div class="staff-item"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1"><input type="checkbox" data-cleanup-key="'+esc(e.key)+'"><span>'+esc(e.member)+' — '+esc(e.title)+' <small style="color:var(--muted)">('+esc(e.groupLabel)+' · '+statusLabel(e.status)+' · ~'+e.sizeKb+' KB)</small></span></label></div>';
+        }).join("");
+        html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="cleanupBtn">🗑️ Remover anexos selecionados</button></div>';
+      }
+      html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
+      showModal(html);
+      document.getElementById("mCancel").addEventListener("click", closeModal);
+      modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+      const selectAllBtn = document.getElementById("cleanupSelectAll");
+      if(selectAllBtn) selectAllBtn.addEventListener("click", function(){
+        modalRoot.querySelectorAll("[data-cleanup-key]").forEach(function(cb){ cb.checked = true; });
+      });
+      const cleanupBtn = document.getElementById("cleanupBtn");
+      if(cleanupBtn) cleanupBtn.addEventListener("click", function(){
+        const checked = Array.from(modalRoot.querySelectorAll("[data-cleanup-key]:checked"));
+        if(!checked.length){ alert("Selecione ao menos um anexo."); return; }
+        confirmModal(
+          "Remover anexos",
+          "Tem certeza que quer remover "+checked.length+" anexo(s)? Os arquivos não podem ser recuperados depois.",
+          "Remover definitivamente",
+          function(){
+            checked.forEach(function(cb){
+              const key = cb.getAttribute("data-cleanup-key");
+              const sep = key.lastIndexOf("::");
+              const member = key.slice(0, sep);
+              const id = key.slice(sep + 2);
+              setStateFor(member, id, {file:null});
+            });
+            render();
+          }
+        );
+      });
+    }
+    render();
+  }
   function monthlyApprovalsChartHtml(){
     const months = [];
     const now = new Date();
@@ -4045,6 +4249,34 @@ button{font-family:inherit}
         + '</div>';
       }).join("")
     + '</div>';
+  }
+  function staffEngagementStats(){
+    // agrupa por conselheiro(a)/instrutor(a) responsável e calcula quantos desbravadores + progresso médio
+    const groups = {}; // key -> {label, role, members:[names]}
+    function addTo(name, role){
+      if(!name) return;
+      const key = role+"|"+name;
+      if(!groups[key]) groups[key] = {name:name, role:role, members:[]};
+      return groups[key];
+    }
+    membros.forEach(function(m){
+      const info = memberInfo[m] || {};
+      [["conselheiro","Conselheiro(a)"],["conselheiroAssoc","Conselheiro(a) Associado(a)"],["responsavel","Instrutor(a)"],["responsavelAssoc","Instrutor(a) Associado(a)"]].forEach(function(pair){
+        const person = info[pair[0]];
+        if(!person) return;
+        const g = addTo(person, pair[1]);
+        if(g && g.members.indexOf(m) === -1) g.members.push(m);
+      });
+    });
+    return Object.keys(groups).map(function(k){
+      const g = groups[k];
+      const pcts = g.members.map(function(m){
+        const p = classYearProgress(m);
+        return p.total ? (p.done/p.total)*100 : 0;
+      });
+      const avgPct = pcts.length ? Math.round(pcts.reduce(function(a,b){return a+b;},0)/pcts.length) : 0;
+      return {name:g.name, role:g.role, count:g.members.length, avgPct:avgPct};
+    }).sort(function(a,b){ return b.count - a.count; });
   }
   function openDashboard(){
     const allGroups = [].concat(espGroups, clsGroups);
@@ -4098,6 +4330,9 @@ button{font-family:inherit}
     html += '<div class="progress-row"><div class="plabel"><span>'+storageInfo.mb+' MB usados de ~1024 MB grátis</span><b>'+storageInfo.pct+'%</b></div>'
       + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(storageInfo.pct,100)+'%'+(storageInfo.pct>80?';background:var(--status-none)':'')+'"></div></div></div>';
     html += '<div class="idea-hint">'+storageInfo.count+' anexo(s) (fotos/arquivos) guardados no total. '+(storageInfo.pct>80?'Está chegando perto do limite gratuito — considere apagar anexos de anos/atividades já encerradas.':'Bem tranquilo, ainda sobra bastante espaço.')+'</div>';
+    if(storageInfo.count){
+      html += '<div class="actions-row" style="justify-content:flex-start;margin-top:6px"><button class="btn" id="openCleanupBtn">🧹 Limpar anexos antigos</button></div>';
+    }
 
     html += '<h4>Evolução das aprovações (últimos 6 meses)</h4>';
     html += monthlyApprovalsChartHtml();
@@ -4107,6 +4342,15 @@ button{font-family:inherit}
       const sub = m.className ? esc(m.className)+' — '+m.done+'/'+m.total : 'sem classe definida';
       return '<div class="rank-row"><span class="rpos">'+(i+1)+'º</span><span class="rname">'+esc(m.name)+' <small style="color:var(--muted);font-weight:400">('+sub+')</small></span><span class="rcount">'+m.done+' aprov.</span></div>';
     }).join("") : '<div class="pending-empty">Nenhum membro cadastrado ainda.</div>';
+
+    const engagement = staffEngagementStats();
+    if(engagement.length){
+      html += '<h4>Acompanhamento por Conselheiro(a) / Instrutor(a)</h4>';
+      html += engagement.map(function(g){
+        return '<div class="progress-row"><div class="plabel"><span>'+esc(g.name)+' <small style="color:var(--muted);font-weight:400">('+esc(g.role)+')</small></span><b>'+g.count+' desbravador(es) · '+g.avgPct+'% progresso médio</b></div>'
+          + '<div class="ptrack"><div class="pfill" style="width:'+g.avgPct+'%"></div></div></div>';
+      }).join("");
+    }
 
     html += '<h4>Especialidades e Classes — quem já concluiu</h4>';
     html += groupStats.filter(function(g){ return g.startedCount>0; }).map(function(g){
@@ -4118,6 +4362,8 @@ button{font-family:inherit}
     modalRoot.innerHTML = '<div class="modal-backdrop" id="modalBackdrop"><div class="modal wide">'+html+'</div></div>';
     document.getElementById("modalBackdrop").addEventListener("click", function(e){ if(e.target.id==="modalBackdrop") closeModal(); });
     modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    const openCleanupBtnEl = document.getElementById("openCleanupBtn");
+    if(openCleanupBtnEl) openCleanupBtnEl.addEventListener("click", function(){ closeModal(); openAttachmentCleanup(); });
   }
 
   // ---- relatório completo do clube (PDF) ----
@@ -4664,6 +4910,7 @@ button{font-family:inherit}
     if(splash) splash.remove();
   }, 4800);
 
+  renderNoticeBoard();
   renderMemberSelect();
   render();
   initDb();
