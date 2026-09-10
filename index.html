@@ -928,15 +928,14 @@ button{font-family:inherit}
 
   // ---- chamada digital da unidade ----
   const CHAMADA_CRITERIA = [
-    {key:"freq", label:"1. Frequência", opts:[["a","Presente a tempo",30],["b","Tardança (+10 min)",10],["c","Ausente",0]]},
-    {key:"ativ", label:"2. Atividades propostas (clube/unidade)", opts:[["a","Totalmente cumpridas",40],["b","Não totalmente cumpridas",20],["c","Nenhum item cumprido",0]]},
+    {key:"freq", label:"1. Frequência", opts:[["a","Presente a tempo (10m)",60],["b","Tardança (+20 min)",30],["c","Ausente",0]]},
+    {key:"cultos", label:"2. Frequência nos Cultos", opts:[["a","Presença 3 Cultos",40],["b","Presença 1 Culto",20],["c","Ausente no Culto",0]]},
     {key:"unif", label:"3. Uniforme", opts:[["a","Em ordem",50],["b","Incompleto",20],["c","Sem uniforme",0]]},
     {key:"boa", label:"4. Boa ação", opts:[["a","Praticou boa ação",50],["b","Não praticou",0]]},
     {key:"biblico", label:"5. Ano bíblico", opts:[["a","Em dia",40],["b","Atrasado até 5 capítulos",20],["c","Atrasado +5 capítulos",10],["d","Não está fazendo",0]]},
-    {key:"taxa", label:"6. Taxa", opts:[["a","Em dia",40],["b","Atrasada",20],["c","Não contribuiu neste mês",0]]},
-    {key:"classeEsp", label:"7. Cartão de classe/especialidade", texto:true},
-    {key:"devocao", label:"8. Devoção pessoal", opts:[["a","Totalmente envolvido",40],["b","Parcialmente envolvido",20],["c","Muito pouco envolvido",10]]},
-    {key:"disciplina", label:"9. Disciplina", opts:[["a","Em dia",30],["b","Levemente atrasado",20],["c","Atrasado",10]]}
+    {key:"classeEsp", label:"6. Cartão de Classes e Especialidades", opts:[["a","Em dia",50],["b","Levemente atrasado",20],["c","Atrasado",10]], sync:true},
+    {key:"devocao", label:"7. Devoção pessoal", opts:[["a","Totalmente envolvido",40],["b","Parcialmente envolvido",20],["c","Muito pouco envolvido",10]]},
+    {key:"disciplina", label:"8. Disciplina", opts:[["a","Excelente",50],["b","Boa",20],["c","Regular",10]]}
   ];
   const CHAMADA_MAX_TOTAL = CHAMADA_CRITERIA.reduce(function(sum,c){ return sum + (c.texto ? 0 : Math.max.apply(null, c.opts.map(function(o){ return o[2]; }))); }, 0);
   let chamadas = {}; // id "unidade__data" -> {unidade,data,membros:{nome:{...respostas,total}},unitTotal,savedAt,savedBy}
@@ -3015,10 +3014,11 @@ button{font-family:inherit}
       Object.keys(last.membros||{}).forEach(function(m){
         const resp = last.membros[m];
         const issues = [];
-        if(resp.taxa === "b") issues.push("taxa atrasada");
-        if(resp.taxa === "c") issues.push("taxa não contribuída");
+        if(resp.classeEsp === "b") issues.push("cartão de classes levemente atrasado");
+        if(resp.classeEsp === "c") issues.push("cartão de classes atrasado");
         if(resp.biblico === "c") issues.push("ano bíblico atrasado (+5 cap.)");
         if(resp.biblico === "d") issues.push("não está fazendo o ano bíblico");
+        if(resp.cultos === "c") issues.push("ausente nos cultos");
         if(issues.length) out.push({member:m, unidade:u, data:last.data, issues:issues});
       });
     });
@@ -3337,16 +3337,12 @@ button{font-family:inherit}
         if(isOpen){
           card += '<div class="chamada-card-body" data-ch-member="'+esc(m)+'" style="padding:10px 12px;display:flex;flex-direction:column;gap:12px">';
           card += CHAMADA_CRITERIA.map(function(c){
-            if(c.texto){
-              const snap = classeEspSnapshot(m);
-              return '<div class="field" style="margin:0"><label>'+esc(c.label)+'</label>'
-                + '<input type="hidden" data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'" value="'+esc(snap)+'">'
-                + '<div class="idea-hint" style="margin:2px 0 4px">'+esc(snap)+' <i>(sincronizado automaticamente com a Trilha)</i></div>'
-                + '<input type="text" data-ch-field="classeEspNota" data-ch-member="'+esc(m)+'" value="'+esc(saved.classeEspNota||"")+'" placeholder="Observação opcional (ex.: especialidade em andamento)">'
-              + '</div>';
-            }
+            const syncHint = c.sync ? '<div class="idea-hint" style="margin:2px 0 4px">'+esc(classeEspSnapshot(m))+' <i>(sincronizado automaticamente com a Trilha — use como referência para escolher a opção)</i></div>' : '';
+            const noteField = c.sync ? '<input type="text" data-ch-field="classeEspNota" data-ch-member="'+esc(m)+'" value="'+esc(saved.classeEspNota||"")+'" placeholder="Observação opcional (ex.: especialidade em andamento)">' : '';
             return '<div class="field" style="margin:0"><label>'+esc(c.label)+'</label>'
+              + syncHint
               + '<select data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'"><option value="">— selecione —</option>' + c.opts.map(function(o){ return '<option value="'+o[0]+'"'+(saved[c.key]===o[0]?" selected":"")+'>'+o[0]+') '+esc(o[1])+' — '+o[2]+' pts</option>'; }).join("") + '</select>'
+              + noteField
             + '</div>';
           }).join("");
           card += '</div>';
