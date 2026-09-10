@@ -945,6 +945,13 @@ button{font-family:inherit}
     if(!db) return;
     db.collection("trilha_chamadas").doc(id).set(rec).catch(function(){});
   }
+  let chamadaMensal = {}; // id "unidade__AAAA-MM" -> {unidade,yearMonth,gritoGuerra,versoBiblico,ativProp:[..3],ativDesenv:[..3],observacoesMes,assinaturas:{capitao,secretario,conselheiro,diretor},savedAt,savedBy}
+  function chamadaMensalId(unidade, yearMonth){ return unidade + "__" + yearMonth; }
+  function persistChamadaMensal(id, rec){
+    chamadaMensal[id] = rec;
+    if(!db) return;
+    db.collection("trilha_chamada_mensal").doc(id).set(rec).catch(function(){});
+  }
   function chamadaRowTotal(resp){
     let total = 0;
     CHAMADA_CRITERIA.forEach(function(c){
@@ -1085,6 +1092,15 @@ button{font-family:inherit}
           if(key) chamadas[key] = data;
         });
       }catch(e){ /* nenhuma chamada registrada ainda */ }
+      try{
+        const cmres = await db.collection("trilha_chamada_mensal").list({limit:1000});
+        const cmdocs = (cmres && cmres.docs) || cmres || [];
+        cmdocs.forEach(function(d){
+          const data = d.data || d;
+          const key = d.id || d.docId;
+          if(key) chamadaMensal[key] = data;
+        });
+      }catch(e){ /* nenhum dado mensal registrado ainda */ }
       dbReady = true;
       renderMemberSelect();
       render();
@@ -2632,6 +2648,7 @@ button{font-family:inherit}
       + '<button class="btn" id="exportClubPdfBtn">📄 Relatório do Clube (PDF)</button>'
       + '<button class="btn" id="openChamadaBtn">📣 Chamada da Unidade</button>'
       + '<button class="btn" id="openUnitRankingBtn">🏆 Ranking das Unidades</button>'
+      + '<button class="btn" id="openConselheiroBtn">🧑‍🏫 Meus Desbravadores (Conselheiro)</button>'
       + '<button class="btn" id="exportBackupBtn">💾 Backup completo (JSON)</button>'
       + (currentStaff.role === "diretor" ? '<button class="btn" id="restoreBackupBtn">📤 Restaurar backup</button><input type="file" accept="application/json" id="restoreBackupInput" hidden>' : '')
       + '</div>';
@@ -2888,6 +2905,7 @@ button{font-family:inherit}
     document.getElementById("exportClubPdfBtn").addEventListener("click", exportClubPdf);
     document.getElementById("openChamadaBtn").addEventListener("click", function(){ closeModal(); openChamada(); });
     document.getElementById("openUnitRankingBtn").addEventListener("click", function(){ closeModal(); openUnitRanking(); });
+    document.getElementById("openConselheiroBtn").addEventListener("click", function(){ closeModal(); openConselheiroPanel(); });
     document.getElementById("exportBackupBtn").addEventListener("click", exportFullBackup);
     const restoreBtn = document.getElementById("restoreBackupBtn");
     if(restoreBtn){
@@ -2914,11 +2932,13 @@ button{font-family:inherit}
       if(data.clubIdeas) clubIdeas = data.clubIdeas;
       if(data.usedIdeas) usedIdeas = data.usedIdeas;
       if(data.chamadas) chamadas = data.chamadas;
+      if(data.chamadaMensal) chamadaMensal = data.chamadaMensal;
       persistMembros(); persistMemberInfo(); persistStaff(); persistParents(); persistClubIdeas(); persistUsedIdeas();
       if(db){
         Object.keys(state).forEach(function(k){ db.collection("trilha_status").doc(k).set(state[k]).catch(function(){}); });
         logEntries.forEach(function(e){ if(e.id) db.collection("trilha_log").doc(e.id).set(e).catch(function(){}); });
         Object.keys(chamadas).forEach(function(id){ db.collection("trilha_chamadas").doc(id).set(chamadas[id]).catch(function(){}); });
+        Object.keys(chamadaMensal).forEach(function(id){ db.collection("trilha_chamada_mensal").doc(id).set(chamadaMensal[id]).catch(function(){}); });
       }
       renderMemberSelect();
       render();
@@ -2926,6 +2946,26 @@ button{font-family:inherit}
       openStaffPanel();
     };
     reader.readAsText(file);
+  }
+  function weakestCriterionFor(unidade){
+    const hist = chamadaHistoryFor(unidade);
+    const scored = CHAMADA_CRITERIA.filter(function(c){ return !c.texto; });
+    const stats = scored.map(function(c){
+      const max = Math.max.apply(null, c.opts.map(function(o){ return o[2]; }));
+      const pts = [];
+      hist.forEach(function(rec){
+        Object.keys(rec.membros||{}).forEach(function(m){
+          const v = rec.membros[m][c.key];
+          const opt = c.opts.find(function(o){ return o[0]===v; });
+          if(opt) pts.push(opt[2]);
+        });
+      });
+      const avg = pts.length ? pts.reduce(function(a,b){return a+b;},0)/pts.length : null;
+      return {label:c.label, pct: (avg===null||!max) ? null : Math.round((avg/max)*100)};
+    }).filter(function(s){ return s.pct !== null; });
+    if(!stats.length) return null;
+    stats.sort(function(a,b){ return a.pct - b.pct; });
+    return stats[0];
   }
   function openUnitRanking(){
     const rows = UNIDADES.map(function(u){
@@ -2938,7 +2978,8 @@ button{font-family:inherit}
         });
       });
       const avg = scores.length ? (scores.reduce(function(a,b){return a+b;},0)/scores.length) : null;
-      return {unidade:u, avg:avg, chamadas:hist.length};
+      const weak = avg !== null ? weakestCriterionFor(u) : null;
+      return {unidade:u, avg:avg, chamadas:hist.length, weak:weak};
     }).sort(function(a,b){
       if(a.avg === null && b.avg === null) return 0;
       if(a.avg === null) return 1;
@@ -2952,8 +2993,10 @@ button{font-family:inherit}
       if(r.avg === null){
         return '<div class="staff-item"><span>'+esc(r.unidade)+'</span><span style="color:var(--muted)">Sem chamadas registradas</span></div>';
       }
+      const weakHint = r.weak ? '<div class="idea-hint" style="margin:2px 0 8px">📉 Ponto de atenção: <b>'+esc(r.weak.label)+'</b> ('+r.weak.pct+'% do máximo em média)</div>' : '';
       return '<div class="progress-row"><div class="plabel"><span><b>'+(i+1)+'º</b> '+esc(r.unidade)+' <small style="color:var(--muted);font-weight:400">('+r.chamadas+' chamada(s))</small></span><b>'+r.avg.toFixed(1)+' pts/média</b></div>'
-        + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(100, Math.round((r.avg/CHAMADA_MAX_TOTAL)*100))+'%;background:var(--rope)"></div></div></div>';
+        + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(100, Math.round((r.avg/CHAMADA_MAX_TOTAL)*100))+'%;background:var(--rope)"></div></div>'
+        + weakHint + '</div>';
     }).join("");
     html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
     showModal(html);
@@ -2973,7 +3016,8 @@ button{font-family:inherit}
         logEntries: logEntries,
         clubIdeas: clubIdeas,
         usedIdeas: usedIdeas,
-        chamadas: chamadas
+        chamadas: chamadas,
+        chamadaMensal: chamadaMensal
       };
       const json = JSON.stringify(backup, null, 2);
       const blob = new Blob([json], {type:"application/json"});
@@ -3021,6 +3065,20 @@ button{font-family:inherit}
         if(resp.cultos === "c") issues.push("ausente nos cultos");
         if(issues.length) out.push({member:m, unidade:u, data:last.data, issues:issues});
       });
+    });
+    return out;
+  }
+  function staleChamadaAlerts(){
+    const today = new Date(todayIso()+"T00:00:00");
+    const out = [];
+    UNIDADES.forEach(function(u){
+      const hist = chamadaHistoryFor(u);
+      if(!hist.length){ out.push({unidade:u, days:null}); return; }
+      const last = hist[hist.length-1];
+      const lastDate = new Date((last.data||"")+"T00:00:00");
+      if(isNaN(lastDate.getTime())) return;
+      const days = Math.round((today - lastDate) / 86400000);
+      if(days >= 8) out.push({unidade:u, days:days});
     });
     return out;
   }
@@ -3085,6 +3143,12 @@ button{font-family:inherit}
           + '<ul class="idea-list">' + alerts.map(function(a){ return '<li><span class="idea-text">'+esc(a.member)+' ('+esc(a.unidade)+') — '+esc(a.issues.join(", "))+'</span></li>'; }).join("") + '</ul>'
         + '</div>';
       }
+      const staleUnits = staleChamadaAlerts();
+      if(staleUnits.length){
+        html += '<div class="note-text" style="margin-bottom:14px"><b>⏰ Unidade(s) sem chamada recente</b>'
+          + '<ul class="idea-list">' + staleUnits.map(function(s){ return '<li><span class="idea-text">'+esc(s.unidade)+' — '+(s.days===null?"nenhuma chamada registrada ainda":"última chamada há "+s.days+" dias")+'</span></li>'; }).join("") + '</ul>'
+        + '</div>';
+      }
       html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">';
       html += '<select id="cpUnidade"><option value="">Todas as unidades</option>' + UNIDADES.map(function(u){ return '<option value="'+esc(u)+'"'+(clubPanelState.unidade===u?" selected":"")+'>'+esc(u)+'</option>'; }).join("") + '</select>';
       const classeOptions = clsGroups.map(function(g){ return g.label; });
@@ -3109,6 +3173,7 @@ button{font-family:inherit}
             const att = memberAttendanceStats(r.name);
             if(att.total > 0) bits.push('Frequência na Chamada: '+att.present+'/'+att.total+' reuniões ('+Math.round((att.present/att.total)*100)+'%)');
             block += '<div class="idea-hint" style="margin:2px 0 6px 4px">'+bits.join(" · ")+'</div>';
+            block += memberEvolutionChartHtml(r.name);
             if(r.classe && r.total > r.done){
               block += '<div style="margin:0 0 12px 4px"><button class="linklike" data-cp-sheet="'+esc(r.name)+'">🖨️ Ficha do que falta ('+(r.total-r.done)+' itens)</button></div>';
             }
@@ -3137,6 +3202,40 @@ button{font-family:inherit}
       });
     }
     render();
+  }
+  function openConselheiroPanel(){
+    const meNames = currentStaff ? [currentStaff.name, currentStaff.username].filter(Boolean) : [];
+    const mine = membros.filter(function(m){
+      const info = memberInfo[m] || {};
+      return meNames.indexOf(info.conselheiro) !== -1 || meNames.indexOf(info.conselheiroAssoc) !== -1;
+    }).sort(function(a,b){ return a.localeCompare(b); });
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>🧑‍🏫 Meus Desbravadores (Conselheiro)</h3>';
+    html += '<p class="idea-hint" style="margin-top:-4px">Desbravadores em que você está cadastrado(a) como Conselheiro(a) ou Conselheiro(a) Associado(a).</p>';
+    if(!mine.length){
+      html += '<p class="pending-empty">Nenhum desbravador vinculado a você como conselheiro(a) ainda. Peça à diretoria para preencher esse campo no cadastro do desbravador.</p>';
+    } else {
+      html += mine.map(function(m){
+        const info = memberInfo[m] || {};
+        const p = classYearProgress(m);
+        const pct = p.total ? Math.round((p.done/p.total)*100) : 0;
+        const att = memberAttendanceStats(m);
+        const barColor = pct >= 70 ? "var(--status-done)" : (pct >= 35 ? "var(--status-doing)" : "var(--status-none)");
+        let block = '<div class="progress-row">'
+          + '<div class="plabel" style="display:flex;align-items:center;gap:8px">'+avatarHtml(m, info, 28)+'<span>'+esc(m)+' <small style="color:var(--muted);font-weight:400">'+(p.className?esc(p.className):"sem classe")+(info.unidade?' · '+esc(info.unidade):'')+'</small></span><b style="margin-left:auto">'+p.done+'/'+p.total+' ('+pct+'%)</b></div>'
+          + '<div class="ptrack"><div class="pfill" style="width:'+pct+'%;background:'+barColor+'"></div></div>'
+        + '</div>';
+        const bits = [];
+        if(att.total > 0) bits.push('Frequência: '+att.present+'/'+att.total+' ('+Math.round((att.present/att.total)*100)+'%)');
+        if(bits.length) block += '<div class="idea-hint" style="margin:2px 0 8px 4px">'+bits.join(" · ")+'</div>';
+        block += memberEvolutionChartHtml(m);
+        return block;
+      }).join("");
+    }
+    html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
   }
   function generateMissingSheetForMember(member){
     const info = memberInfo[member] || {};
@@ -3168,6 +3267,25 @@ button{font-family:inherit}
     });
     return {present:present, total:total};
   }
+  function memberChamadaSeries(member, limit){
+    const info = memberInfo[member] || {};
+    if(!info.unidade) return [];
+    const hist = chamadaHistoryFor(info.unidade);
+    const series = hist.filter(function(rec){ return rec.membros && rec.membros[member] && typeof rec.membros[member].total === "number"; })
+      .map(function(rec){ return {data:rec.data, total:rec.membros[member].total}; });
+    return limit ? series.slice(-limit) : series;
+  }
+  function memberEvolutionChartHtml(member){
+    const series = memberChamadaSeries(member, 8);
+    if(series.length < 2) return "";
+    const max = Math.max.apply(null, series.map(function(s){ return s.total; }).concat([CHAMADA_MAX_TOTAL]));
+    const bars = series.map(function(s){
+      const h = Math.max(4, Math.round((s.total/max)*36));
+      return '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1"><div title="'+esc(s.data)+': '+s.total+' pts" style="width:100%;max-width:16px;height:'+h+'px;background:var(--rope);border-radius:2px 2px 0 0"></div></div>';
+    }).join("");
+    return '<div style="margin:4px 0 6px 4px"><div class="idea-hint" style="margin-bottom:2px">Evolução na Chamada (últimas '+series.length+' reuniões)</div>'
+      + '<div style="display:flex;align-items:flex-end;gap:4px;height:40px">'+bars+'</div></div>';
+  }
   function chamadaHistoryFor(unidade){
     return Object.keys(chamadas).filter(function(id){ return chamadas[id] && chamadas[id].unidade === unidade; })
       .map(function(id){ return chamadas[id]; })
@@ -3189,16 +3307,22 @@ button{font-family:inherit}
       const wrap = document.getElementById("chHistoryWrap");
       if(!unidade){ wrap.innerHTML = ""; return; }
       const hist = chamadaHistoryFor(unidade);
-      if(!hist.length){ wrap.innerHTML = '<p class="idea-hint">Nenhuma chamada registrada ainda para a unidade '+esc(unidade)+'.</p>'; return; }
+      const currentMonth = todayIso().slice(0,7);
+      const months = Array.from(new Set(hist.map(function(rec){ return (rec.data||"").slice(0,7); }).concat([currentMonth]))).filter(Boolean).sort().reverse();
+      let h = '';
+      h += '<h4 style="margin-top:18px">Dados mensais da unidade</h4>';
+      h += '<p class="idea-hint" style="margin-top:-6px">Grito de guerra, verso bíblico, atividades e assinaturas do mês, conforme a ficha oficial.</p>';
+      h += '<div class="field" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+        + '<div style="flex:1;min-width:140px"><label>Mês</label><select id="chMensalMonth">' + months.map(function(mo){ return '<option value="'+mo+'"'+(mo===currentMonth?" selected":"")+'>'+mo+'</option>'; }).join("") + '</select></div>'
+        + '<button class="btn primary" id="chMensalBtn" type="button">📝 Preencher/editar dados do mês</button>'
+      + '</div>';
+      if(!hist.length){ h += '<p class="idea-hint">Nenhuma chamada registrada ainda para a unidade '+esc(unidade)+'.</p>'; wrap.innerHTML = h; wireMensalBtn(); return; }
       const somaGeral = hist.reduce(function(s,h){ return s + (h.unitTotal||0); }, 0);
-      const months = Array.from(new Set(hist.map(function(rec){ return (rec.data||"").slice(0,7); }))).filter(Boolean).sort().reverse();
-      let h = '<h4>Histórico — '+esc(unidade)+' (soma geral: '+somaGeral+' pts)</h4>';
-      if(months.length){
-        h += '<div class="field" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
-          + '<div style="flex:1;min-width:140px"><label>Mês para relatório</label><select id="chReportMonth">' + months.map(function(mo){ return '<option value="'+mo+'">'+mo+'</option>'; }).join("") + '</select></div>'
-          + '<button class="btn primary" id="chReportBtn" type="button">📄 Baixar relatório do mês</button>'
-        + '</div>';
-      }
+      h += '<h4>Histórico — '+esc(unidade)+' (soma geral: '+somaGeral+' pts)</h4>';
+      h += '<div class="field" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+        + '<div style="flex:1;min-width:140px"><label>Mês para relatório</label><select id="chReportMonth">' + months.filter(function(mo){ return hist.some(function(r){ return (r.data||"").slice(0,7)===mo; }); }).map(function(mo){ return '<option value="'+mo+'">'+mo+'</option>'; }).join("") + '</select></div>'
+        + '<button class="btn primary" id="chReportBtn" type="button">📄 Baixar relatório do mês</button>'
+      + '</div>';
       h += hist.map(function(rec){
         return '<div class="staff-item"><span>'+(rec.foto?'<img src="'+rec.foto+'" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px">':'')+esc(rec.data)+' — total da unidade: <b>'+(rec.unitTotal||0)+' pts</b></span>'
           + '<span><button class="idea-mini-btn" data-ch-open="'+esc(rec.unidade)+'|'+esc(rec.data)+'">✏️ Abrir</button></span></div>';
@@ -3216,6 +3340,15 @@ button{font-family:inherit}
         const mo = document.getElementById("chReportMonth").value;
         generateMonthlyChamadaReport(unidade, mo);
       });
+      wireMensalBtn();
+      function wireMensalBtn(){
+        const btn = document.getElementById("chMensalBtn");
+        if(btn) btn.addEventListener("click", function(){
+          const mo = document.getElementById("chMensalMonth").value;
+          closeModal();
+          openChamadaMensalForm(unidade, mo);
+        });
+      }
     }
     document.getElementById("chUnidade").addEventListener("change", renderHistory);
     document.getElementById("chOpenBtn").addEventListener("click", function(){
@@ -3271,7 +3404,92 @@ button{font-family:inherit}
       body += row;
     });
     body += '</tbody><tfoot><tr><td>Total da unidade</td>' + colTotals.map(function(t){ return '<td>'+t+'</td>'; }).join("") + '<td>'+colTotals.reduce(function(a,b){return a+b;},0)+'</td></tr></tfoot></table>';
+    const mensal = chamadaMensal[chamadaMensalId(unidade, yearMonth)];
+    if(mensal){
+      body += '<div style="margin-top:20px;page-break-inside:avoid">';
+      if(mensal.gritoGuerra) body += '<p><b>Grito de Guerra da Unidade:</b> '+esc(mensal.gritoGuerra)+'</p>';
+      if(mensal.versoBiblico) body += '<p><b>Verso Bíblico da Unidade:</b> '+esc(mensal.versoBiblico)+'</p>';
+      const props = (mensal.ativProp||[]).filter(Boolean);
+      const desenv = (mensal.ativDesenv||[]).filter(Boolean);
+      if(props.length || desenv.length){
+        body += '<table style="margin-top:10px"><thead><tr><th>Atividades Propostas</th><th>Atividades Desenvolvidas</th></tr></thead><tbody>';
+        const maxLen = Math.max(props.length, desenv.length, 1);
+        for(let i=0;i<maxLen;i++){ body += '<tr><td style="text-align:left">'+(props[i]?esc(props[i]):"")+'</td><td style="text-align:left">'+(desenv[i]?esc(desenv[i]):"")+'</td></tr>'; }
+        body += '</tbody></table>';
+      }
+      if(mensal.observacoesMes) body += '<p style="margin-top:10px"><b>Observações:</b> '+esc(mensal.observacoesMes)+'</p>';
+      const ass = mensal.assinaturas||{};
+      if(ass.capitao||ass.secretario||ass.conselheiro||ass.diretor){
+        body += '<table style="margin-top:10px"><tbody>'
+          + '<tr><td style="text-align:left;width:25%"><b>Capitão(ã)</b></td><td style="text-align:left">'+esc(ass.capitao||"")+'</td></tr>'
+          + '<tr><td style="text-align:left"><b>Secretário(a)</b></td><td style="text-align:left">'+esc(ass.secretario||"")+'</td></tr>'
+          + '<tr><td style="text-align:left"><b>Conselheiro(a)</b></td><td style="text-align:left">'+esc(ass.conselheiro||"")+'</td></tr>'
+          + '<tr><td style="text-align:left"><b>Diretor(a)</b></td><td style="text-align:left">'+esc(ass.diretor||"")+'</td></tr>'
+        + '</tbody></table>';
+      }
+      body += '</div>';
+    }
     downloadReport("Relatorio mensal - Chamada - "+unidade+" - "+yearMonth, body, style);
+  }
+  function openChamadaMensalForm(unidade, yearMonth){
+    const id = chamadaMensalId(unidade, yearMonth);
+    const existing = chamadaMensal[id] || {};
+    const draft = {
+      gritoGuerra: existing.gritoGuerra || "",
+      versoBiblico: existing.versoBiblico || "",
+      ativProp: [0,1,2].map(function(i){ return (existing.ativProp && existing.ativProp[i]) || ""; }),
+      ativDesenv: [0,1,2].map(function(i){ return (existing.ativDesenv && existing.ativDesenv[i]) || ""; }),
+      observacoesMes: existing.observacoesMes || "",
+      assinaturas: Object.assign({capitao:"",secretario:"",conselheiro:"",diretor:""}, existing.assinaturas||{})
+    };
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>📝 Dados mensais — '+esc(unidade)+' · '+esc(yearMonth)+'</h3>';
+    html += '<p class="idea-hint" style="margin-top:-4px">Estes dados aparecem no relatório mensal impresso da unidade.</p>';
+    html += '<div class="field"><label>Grito de Guerra da Unidade</label><textarea id="cmGrito" placeholder="Escreva o grito de guerra…">'+esc(draft.gritoGuerra)+'</textarea></div>';
+    html += '<div class="field"><label>Verso Bíblico da Unidade</label><textarea id="cmVerso" placeholder="Escreva o verso bíblico do mês…">'+esc(draft.versoBiblico)+'</textarea></div>';
+    html += '<div style="display:flex;gap:14px;flex-wrap:wrap">';
+    html += '<div style="flex:1;min-width:220px"><label style="font-weight:600">Atividades Propostas</label>'
+      + [0,1,2].map(function(i){ return '<div class="field" style="margin:6px 0"><input type="text" id="cmProp'+i+'" value="'+esc(draft.ativProp[i])+'" placeholder="'+(i+1)+'."></div>'; }).join("")
+    + '</div>';
+    html += '<div style="flex:1;min-width:220px"><label style="font-weight:600">Atividades Desenvolvidas</label>'
+      + [0,1,2].map(function(i){ return '<div class="field" style="margin:6px 0"><input type="text" id="cmDesenv'+i+'" value="'+esc(draft.ativDesenv[i])+'" placeholder="'+(i+1)+'."></div>'; }).join("")
+    + '</div>';
+    html += '</div>';
+    html += '<div class="field"><label>Observações</label><textarea id="cmObs" placeholder="Observações gerais do mês…">'+esc(draft.observacoesMes)+'</textarea></div>';
+    html += '<div class="field"><label style="font-weight:600">Assinaturas (nome de quem confirma)</label></div>';
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+      + '<div class="field" style="flex:1;min-width:160px"><label>Capitão(ã)</label><input type="text" id="cmAssCapitao" value="'+esc(draft.assinaturas.capitao)+'"></div>'
+      + '<div class="field" style="flex:1;min-width:160px"><label>Secretário(a)</label><input type="text" id="cmAssSecretario" value="'+esc(draft.assinaturas.secretario)+'"></div>'
+      + '<div class="field" style="flex:1;min-width:160px"><label>Conselheiro(a)</label><input type="text" id="cmAssConselheiro" value="'+esc(draft.assinaturas.conselheiro)+'"></div>'
+      + '<div class="field" style="flex:1;min-width:160px"><label>Diretor(a)</label><input type="text" id="cmAssDiretor" value="'+esc(draft.assinaturas.diretor)+'"></div>'
+    + '</div>';
+    html += '<div class="actions-row"><button class="btn primary" id="cmSaveBtn">💾 Salvar dados do mês</button><button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    document.getElementById("cmSaveBtn").addEventListener("click", function(){
+      const rec = {
+        unidade: unidade,
+        yearMonth: yearMonth,
+        gritoGuerra: document.getElementById("cmGrito").value.trim(),
+        versoBiblico: document.getElementById("cmVerso").value.trim(),
+        ativProp: [0,1,2].map(function(i){ return document.getElementById("cmProp"+i).value.trim(); }),
+        ativDesenv: [0,1,2].map(function(i){ return document.getElementById("cmDesenv"+i).value.trim(); }),
+        observacoesMes: document.getElementById("cmObs").value.trim(),
+        assinaturas: {
+          capitao: document.getElementById("cmAssCapitao").value.trim(),
+          secretario: document.getElementById("cmAssSecretario").value.trim(),
+          conselheiro: document.getElementById("cmAssConselheiro").value.trim(),
+          diretor: document.getElementById("cmAssDiretor").value.trim()
+        },
+        savedAt: Date.now(),
+        savedBy: (currentStaff && (currentStaff.name||currentStaff.username)) || "—"
+      };
+      persistChamadaMensal(id, rec);
+      showModal('<button class="close-x">✕</button><h3>Dados salvos!</h3><p>Os dados mensais de <b>'+esc(unidade)+'</b> ('+esc(yearMonth)+') foram salvos e já aparecem no relatório mensal.</p><div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>');
+      document.getElementById("mCancel").addEventListener("click", closeModal);
+      modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    });
   }
   function classeEspSnapshot(m){
     const p = classYearProgress(m);
