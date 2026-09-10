@@ -1512,9 +1512,43 @@ button{font-family:inherit}
     "atos":"acts","romanos":"romans","coríntios":"corinthians","corintios":"corinthians","gálatas":"galatians","galatas":"galatians",
     "efésios":"ephesians","efesios":"ephesians","filipenses":"philippians","colossenses":"colossians","tessalonicenses":"thessalonians",
     "timóteo":"timothy","timoteo":"timothy","tito":"titus","filemom":"philemon","hebreus":"hebrews","tiago":"james","pedro":"peter",
-    "judas":"jude","apocalipse":"revelation"
+    "judas":"jude","apocalipse":"revelation",
+    // abreviações comuns (com ou sem ponto — o ponto é opcional no padrão de busca)
+    "gên":"genesis","gen":"genesis","gn":"genesis","êx":"exodus","ex":"exodus","lv":"leviticus",
+    "nm":"numbers","dt":"deuteronomy","js":"joshua","jz":"judges","rt":"ruth","sm":"samuel",
+    "rs":"kings","cr":"chronicles","ed":"ezra","ne":"nehemiah","et":"esther","sl":"psalms","sal":"psalms",
+    "pv":"proverbs","prov":"proverbs","ec":"ecclesiastes","ct":"song of solomon","is":"isaiah","isa":"isaiah",
+    "jr":"jeremiah","lm":"lamentations","ez":"ezekiel","dn":"daniel","os":"hosea","jl":"joel","am":"amos",
+    "ob":"obadiah","jn":"jonah","mq":"micah","na":"nahum","hc":"habakkuk","sf":"zephaniah","ag":"haggai",
+    "zc":"zechariah","ml":"malachi","mt":"matthew","mc":"mark","lc":"luke","at":"acts","rm":"romans",
+    "co":"corinthians","gl":"galatians","ef":"ephesians","fp":"philippians","cl":"colossians","ts":"thessalonians",
+    "tm":"timothy","tt":"titus","fm":"philemon","hb":"hebrews","heb":"hebrews","tg":"james","pe":"peter",
+    "jd":"jude","ap":"revelation","apoc":"revelation","ecles":"ecclesiastes","rom":"romans","cor":"corinthians",
+    "gal":"galatians","efe":"ephesians","fil":"philippians","col":"colossians","tes":"thessalonians","tim":"timothy",
+    "filip":"philippians","sam":"samuel","apo":"revelation","ecl":"ecclesiastes",
+    "ped":"peter","cro":"chronicles","luc":"luke","cron":"chronicles",
+    // lote adicional de abreviações padrão em português para cobrir todos os livros
+    "jon":"jonah","miq":"micah","hab":"habakkuk","sof":"zephaniah","zac":"zechariah","mrc":"mark","joa":"john",
+    "tess":"thessalonians","tit":"titus","flm":"philemon","jud":"jude","mal":"malachi","dan":"daniel",
+    "salm":"psalms","lam":"lamentations","mat":"matthew","mar":"mark","numer":"numbers","deute":"deuteronomy",
+    "genes":"genesis","exod":"exodus","levit":"leviticus","josue":"joshua","juiz":"judges","levi":"leviticus",
+    "esdr":"ezra","neem":"nehemiah","esth":"esther","reis":"kings"
   };
-  const BIBLE_REF_PATTERN = "\\b((?:I{1,3}|[123])\\s)?(" + Object.keys(BIBLE_BOOK_MAP).sort(function(a,b){return b.length-a.length;}).join("|") + ")\\s(\\d{1,3})(?::(\\d{1,3})(?:-(\\d{1,3}))?)?\\b";
+  // nome completo em português (para consulta na bible-api.com), indexado pelo slug em inglês do BIBLE_BOOK_MAP
+  const BIBLE_PT_FULLNAME = {
+    genesis:"Gênesis", exodus:"Êxodo", leviticus:"Levítico", numbers:"Números", deuteronomy:"Deuteronômio",
+    joshua:"Josué", judges:"Juízes", ruth:"Rute", samuel:"Samuel", kings:"Reis", chronicles:"Crônicas",
+    ezra:"Esdras", nehemiah:"Neemias", esther:"Ester", job:"Jó", psalms:"Salmos", proverbs:"Provérbios",
+    ecclesiastes:"Eclesiastes", "song of solomon":"Cantares", isaiah:"Isaías", jeremiah:"Jeremias",
+    lamentations:"Lamentações", ezekiel:"Ezequiel", daniel:"Daniel", hosea:"Oséias", joel:"Joel",
+    amos:"Amós", obadiah:"Obadias", jonah:"Jonas", micah:"Miquéias", nahum:"Naum", habakkuk:"Habacuque",
+    zephaniah:"Sofonias", haggai:"Ageu", zechariah:"Zacarias", malachi:"Malaquias", matthew:"Mateus",
+    mark:"Marcos", luke:"Lucas", john:"João", acts:"Atos", romans:"Romanos", corinthians:"Coríntios",
+    galatians:"Gálatas", ephesians:"Efésios", philippians:"Filipenses", colossians:"Colossenses",
+    thessalonians:"Tessalonicenses", timothy:"Timóteo", titus:"Tito", philemon:"Filemom", hebrews:"Hebreus",
+    james:"Tiago", peter:"Pedro", jude:"Judas", revelation:"Apocalipse"
+  };
+  const BIBLE_REF_PATTERN = "\\b((?:I{1,3}|[123])\\s)?(" + Object.keys(BIBLE_BOOK_MAP).sort(function(a,b){return b.length-a.length;}).join("|") + ")\\.?\\s(\\d{1,3})(?::(\\d{1,3})(?:-(\\d{1,3}))?)?\\b";
   const BIBLE_BOOK_REGEX = new RegExp(BIBLE_REF_PATTERN, "gi");
   function linkifyBibleRefs(text){
     const safe = esc(text);
@@ -1530,8 +1564,11 @@ button{font-family:inherit}
     const chapter = m[3];
     const verseStart = m[4];
     const verseEnd = m[5];
-    // a API bible-api.com (translation=almeida) aceita o nome do livro em português diretamente
-    let slug = (numPrefix ? numPrefix+" " : "") + m[2] + " " + chapter;
+    // a API bible-api.com (translation=almeida) aceita o nome do livro em português diretamente;
+    // convertemos qualquer forma (abreviada ou por extenso) para o nome completo em português
+    const engSlug = BIBLE_BOOK_MAP[m[2].toLowerCase()];
+    const bookName = (engSlug && BIBLE_PT_FULLNAME[engSlug]) || m[2];
+    let slug = (numPrefix ? numPrefix+" " : "") + bookName + " " + chapter;
     if(verseStart){ slug += ":"+verseStart; if(verseEnd) slug += "-"+verseEnd; }
     return slug;
   }
