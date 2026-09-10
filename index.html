@@ -1503,7 +1503,7 @@ button{font-family:inherit}
     "gênesis":"genesis","genesis":"genesis","êxodo":"exodus","exodo":"exodus","levítico":"leviticus","levitico":"leviticus",
     "números":"numbers","numeros":"numbers","deuteronômio":"deuteronomy","deuteronomio":"deuteronomy","josué":"joshua","josue":"joshua",
     "juízes":"judges","juizes":"judges","rute":"ruth","samuel":"samuel","reis":"kings","crônicas":"chronicles","cronicas":"chronicles",
-    "esdras":"ezra","neemias":"nehemiah","ester":"esther","jó":"job","jo":"job","salmo":"psalms","salmos":"psalms",
+    "esdras":"ezra","neemias":"nehemiah","ester":"esther","jó":"job","salmo":"psalms","salmos":"psalms",
     "provérbios":"proverbs","proverbios":"proverbs","eclesiastes":"ecclesiastes","cantares":"song of solomon","cântico dos cânticos":"song of solomon",
     "isaías":"isaiah","isaias":"isaiah","jeremias":"jeremiah","lamentações":"lamentations","lamentacoes":"lamentations","ezequiel":"ezekiel",
     "daniel":"daniel","oséias":"hosea","oseias":"hosea","joel":"joel","amós":"amos","amos":"amos","obadias":"obadiah","jonas":"jonah",
@@ -1512,11 +1512,14 @@ button{font-family:inherit}
     "atos":"acts","romanos":"romans","coríntios":"corinthians","corintios":"corinthians","gálatas":"galatians","galatas":"galatians",
     "efésios":"ephesians","efesios":"ephesians","filipenses":"philippians","colossenses":"colossians","tessalonicenses":"thessalonians",
     "timóteo":"timothy","timoteo":"timothy","tito":"titus","filemom":"philemon","hebreus":"hebrews","tiago":"james","pedro":"peter",
-    "judas":"jude","apocalipse":"revelation",
-    // abreviações comuns (com ou sem ponto — o ponto é opcional no padrão de busca)
+    "judas":"jude","apocalipse":"revelation"
+  };
+  // abreviações — exigem ponto final obrigatório (ex.: "Isa.", "Heb.") para não colidir com
+  // palavras comuns do português como "os", "at", "jo", "ex" quando seguidas de número
+  const BIBLE_BOOK_ABBR = {
     "gên":"genesis","gen":"genesis","gn":"genesis","êx":"exodus","ex":"exodus","lv":"leviticus",
     "nm":"numbers","dt":"deuteronomy","js":"joshua","jz":"judges","rt":"ruth","sm":"samuel",
-    "rs":"kings","cr":"chronicles","ed":"ezra","ne":"nehemiah","et":"esther","sl":"psalms","sal":"psalms",
+    "rs":"kings","cr":"chronicles","ed":"ezra","ne":"nehemiah","et":"esther","jo":"job","sl":"psalms","sal":"psalms",
     "pv":"proverbs","prov":"proverbs","ec":"ecclesiastes","ct":"song of solomon","is":"isaiah","isa":"isaiah",
     "jr":"jeremiah","lm":"lamentations","ez":"ezekiel","dn":"daniel","os":"hosea","jl":"joel","am":"amos",
     "ob":"obadiah","jn":"jonah","mq":"micah","na":"nahum","hc":"habakkuk","sf":"zephaniah","ag":"haggai",
@@ -1527,12 +1530,11 @@ button{font-family:inherit}
     "gal":"galatians","efe":"ephesians","fil":"philippians","col":"colossians","tes":"thessalonians","tim":"timothy",
     "filip":"philippians","sam":"samuel","apo":"revelation","ecl":"ecclesiastes",
     "ped":"peter","cro":"chronicles","luc":"luke","cron":"chronicles",
-    // lote adicional de abreviações padrão em português para cobrir todos os livros
     "jon":"jonah","miq":"micah","hab":"habakkuk","sof":"zephaniah","zac":"zechariah","mrc":"mark","joa":"john",
     "tess":"thessalonians","tit":"titus","flm":"philemon","jud":"jude","mal":"malachi","dan":"daniel",
     "salm":"psalms","lam":"lamentations","mat":"matthew","mar":"mark","numer":"numbers","deute":"deuteronomy",
     "genes":"genesis","exod":"exodus","levit":"leviticus","josue":"joshua","juiz":"judges","levi":"leviticus",
-    "esdr":"ezra","neem":"nehemiah","esth":"esther","reis":"kings"
+    "esdr":"ezra","neem":"nehemiah","esth":"esther"
   };
   // nome completo em português (para consulta na bible-api.com), indexado pelo slug em inglês do BIBLE_BOOK_MAP
   const BIBLE_PT_FULLNAME = {
@@ -1548,11 +1550,14 @@ button{font-family:inherit}
     thessalonians:"Tessalonicenses", timothy:"Timóteo", titus:"Tito", philemon:"Filemom", hebrews:"Hebreus",
     james:"Tiago", peter:"Pedro", jude:"Judas", revelation:"Apocalipse"
   };
-  const BIBLE_REF_PATTERN = "\\b((?:I{1,3}|[123])\\s)?(" + Object.keys(BIBLE_BOOK_MAP).sort(function(a,b){return b.length-a.length;}).join("|") + ")\\.?\\s(\\d{1,3})(?::(\\d{1,3})(?:-(\\d{1,3}))?)?\\b";
+  const BIBLE_FULLNAME_ALT = Object.keys(BIBLE_BOOK_MAP).sort(function(a,b){return b.length-a.length;}).join("|");
+  const BIBLE_ABBR_ALT = Object.keys(BIBLE_BOOK_ABBR).sort(function(a,b){return b.length-a.length;}).join("|");
+  // grupo 2 = nome por extenso (ponto opcional); grupo 3 = abreviação (ponto OBRIGATÓRIO, evita colidir com palavras comuns)
+  const BIBLE_REF_PATTERN = "\\b((?:I{1,3}|[123])\\s)?(?:(" + BIBLE_FULLNAME_ALT + ")\\.?|(" + BIBLE_ABBR_ALT + ")\\.)\\s(\\d{1,3})(?::(\\d{1,3})(?:-(\\d{1,3}))?)?\\b";
   const BIBLE_BOOK_REGEX = new RegExp(BIBLE_REF_PATTERN, "gi");
   function linkifyBibleRefs(text){
     const safe = esc(text);
-    return safe.replace(BIBLE_BOOK_REGEX, function(m, prefix, book){
+    return safe.replace(BIBLE_BOOK_REGEX, function(m){
       return '<span class="bible-ref" data-bible-ref="'+esc(m.trim())+'">📖 '+m+'</span>';
     });
   }
@@ -1561,13 +1566,14 @@ button{font-family:inherit}
     if(!m) return null;
     const prefix = (m[1]||"").trim().toUpperCase();
     const numPrefix = {I:"1", II:"2", III:"3", "1":"1", "2":"2", "3":"3"}[prefix] || "";
-    const chapter = m[3];
-    const verseStart = m[4];
-    const verseEnd = m[5];
+    const book = m[2] || m[3];
+    const chapter = m[4];
+    const verseStart = m[5];
+    const verseEnd = m[6];
     // a API bible-api.com (translation=almeida) aceita o nome do livro em português diretamente;
     // convertemos qualquer forma (abreviada ou por extenso) para o nome completo em português
-    const engSlug = BIBLE_BOOK_MAP[m[2].toLowerCase()];
-    const bookName = (engSlug && BIBLE_PT_FULLNAME[engSlug]) || m[2];
+    const engSlug = BIBLE_BOOK_MAP[book.toLowerCase()] || BIBLE_BOOK_ABBR[book.toLowerCase()];
+    const bookName = (engSlug && BIBLE_PT_FULLNAME[engSlug]) || book;
     let slug = (numPrefix ? numPrefix+" " : "") + bookName + " " + chapter;
     if(verseStart){ slug += ":"+verseStart; if(verseEnd) slug += "-"+verseEnd; }
     return slug;
