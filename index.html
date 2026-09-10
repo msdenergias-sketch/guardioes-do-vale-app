@@ -1329,12 +1329,12 @@ button{font-family:inherit}
     html += navItem(null, "Tudo", especialidades.length + classesReq.length);
     html += "</div>";
 
-    html += '<div class="nav-group'+(collapsed.esp?" collapsed":"")+'">' + groupTitle("esp", "Especialidades");
-    espGroups.forEach(function(g){ html += navGroupItem(g); });
-    html += "</div>";
-
     html += '<div class="nav-group'+(collapsed.cls?" collapsed":"")+'">' + groupTitle("cls", "Classes");
     clsGroups.forEach(function(g){ html += navGroupItem(g); });
+    html += "</div>";
+
+    html += '<div class="nav-group'+(collapsed.esp?" collapsed":"")+'">' + groupTitle("esp", "Especialidades");
+    espGroups.forEach(function(g){ html += navGroupItem(g); });
     html += "</div>";
 
     sidebarEl.innerHTML = html;
@@ -1567,8 +1567,8 @@ button{font-family:inherit}
   }
 
   function renderList(){
-    const groups = (activeFilter == null) ? [].concat(espGroups, clsGroups)
-      : [].concat(espGroups, clsGroups).filter(function(g){ return g.id === activeFilter; });
+    const groups = (activeFilter == null) ? [].concat(clsGroups, espGroups)
+      : [].concat(clsGroups, espGroups).filter(function(g){ return g.id === activeFilter; });
 
     let html = "";
     let any = false;
