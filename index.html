@@ -752,7 +752,8 @@ button{font-family:inherit}
     secretaria: "Secretaria",
     instrutor_classe: "Instrutor(a) de Classes",
     instrutor_especialidade: "Instrutor(a) de Especialidades",
-    conselheiro: "Conselheiro(a)"
+    conselheiro: "Conselheiro(a)",
+    secretario_unidade: "Secretário(a) da Unidade"
   };
   let staffAccounts = [];
   try{ staffAccounts = JSON.parse(localStorage.getItem("trilha_staff") || "[]"); }catch(e){ staffAccounts = []; }
@@ -945,6 +946,39 @@ button{font-family:inherit}
     if(!db) return;
     db.collection("trilha_chamadas").doc(id).set(rec).catch(function(){});
   }
+  let memberChangeLog = []; // [{id, member, field, from, to, by, at}]
+  const MEMBER_CHANGE_FIELD_LABELS = {unidade:"Unidade", classe:"Classe do ano", cargoUnidade:"Cargo na unidade", responsavel:"Instrutor(a)", responsavelAssoc:"Instrutor(a) Associado(a)", conselheiro:"Conselheiro(a)", conselheiroAssoc:"Conselheiro(a) Associado(a)"};
+  function logMemberChanges(member, before, after){
+    Object.keys(MEMBER_CHANGE_FIELD_LABELS).forEach(function(field){
+      const from = before[field] || null;
+      const to = after[field] || null;
+      if(from === to) return;
+      const entry = {id: member+"__"+field+"__"+Date.now(), member:member, field:field, from:from, to:to, by:(currentStaff&&(currentStaff.name||currentStaff.username))||"—", at:Date.now()};
+      memberChangeLog.unshift(entry);
+      if(db) db.collection("trilha_member_changes").doc(entry.id).set(entry).catch(function(){});
+    });
+  }
+  function memberChangeHistoryFor(member){
+    return memberChangeLog.filter(function(e){ return e.member === member; });
+  }
+  let clubGoal = null; // {text, targetPct, month, setBy, setAt}
+  function persistClubGoal(){
+    if(db) db.collection("trilha_goal").doc("current").set(clubGoal||{}).catch(function(){});
+  }
+  function clubGoalProgressPct(){
+    const scores = [];
+    UNIDADES.forEach(function(u){
+      chamadaHistoryFor(u).forEach(function(rec){
+        Object.keys(rec.membros||{}).forEach(function(m){
+          const t = rec.membros[m].total;
+          if(typeof t === "number") scores.push(t);
+        });
+      });
+    });
+    if(!scores.length) return null;
+    const avg = scores.reduce(function(a,b){return a+b;},0)/scores.length;
+    return Math.round((avg/CHAMADA_MAX_TOTAL)*100);
+  }
   let chamadaMensal = {}; // id "unidade__AAAA-MM" -> {unidade,yearMonth,gritoGuerra,versoBiblico,ativProp:[..3],ativDesenv:[..3],observacoesMes,assinaturas:{capitao,secretario,conselheiro,diretor},savedAt,savedBy}
   function chamadaMensalId(unidade, yearMonth){ return unidade + "__" + yearMonth; }
   function persistChamadaMensal(id, rec){
@@ -1101,6 +1135,16 @@ button{font-family:inherit}
           if(key) chamadaMensal[key] = data;
         });
       }catch(e){ /* nenhum dado mensal registrado ainda */ }
+      try{
+        const gdoc = await db.collection("trilha_goal").doc("current").get();
+        const gdata = (gdoc && (gdoc.data || gdoc)) || null;
+        if(gdata && gdata.text) clubGoal = gdata;
+      }catch(e){ /* nenhuma meta definida ainda */ }
+      try{
+        const mcres = await db.collection("trilha_member_changes").list({limit:2000});
+        const mcdocs = (mcres && mcres.docs) || mcres || [];
+        memberChangeLog = mcdocs.map(function(d){ return d.data || d; }).sort(function(a,b){ return (b.at||0)-(a.at||0); });
+      }catch(e){ /* nenhuma mudança registrada ainda */ }
       dbReady = true;
       renderMemberSelect();
       render();
@@ -2323,6 +2367,83 @@ button{font-family:inherit}
     }
   }
 
+  // Gera e baixa um arquivo .csv (abre direto no Excel/Google Sheets)
+  function downloadCsv(filename, rows){
+    const csv = rows.map(function(row){
+      return row.map(function(cell){
+        const s = (cell===null||cell===undefined) ? "" : String(cell);
+        return /[",;\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+      }).join(";");
+    }).join("\r\n");
+    try{
+      const blob = new Blob(["﻿"+csv], {type:"text/csv;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename.replace(/[^a-zA-Z0-9\-_ ]/g, "_") + ".csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 8000);
+    }catch(e){
+      alert("Não foi possível gerar o arquivo Excel/CSV neste navegador.");
+    }
+  }
+  function generateYearChamadaReport(unidade, year, format){
+    const recs = chamadaHistoryFor(unidade).filter(function(r){ return (r.data||"").slice(0,4) === String(year); });
+    if(!recs.length){ alert("Nenhuma chamada encontrada nesse ano."); return; }
+    const cargoOrder = CARGO_UNIDADE;
+    const memberSet = [];
+    recs.forEach(function(r){ Object.keys(r.membros||{}).forEach(function(m){ if(memberSet.indexOf(m)===-1) memberSet.push(m); }); });
+    memberSet.sort(function(a,b){
+      const ca = cargoOrder.indexOf((memberInfo[a]||{}).cargoUnidade||"Desbravador(a)");
+      const cb = cargoOrder.indexOf((memberInfo[b]||{}).cargoUnidade||"Desbravador(a)");
+      return (ca<0?99:ca) - (cb<0?99:cb) || a.localeCompare(b);
+    });
+    const monthKeys = Array.from(new Set(recs.map(function(r){ return (r.data||"").slice(0,7); }))).sort();
+    const matrix = memberSet.map(function(m){
+      const byMonth = monthKeys.map(function(mo){
+        const monthRecs = recs.filter(function(r){ return (r.data||"").slice(0,7) === mo; });
+        return monthRecs.reduce(function(s,r){ return s + ((r.membros[m] && r.membros[m].total) || 0); }, 0);
+      });
+      const rowTotal = byMonth.reduce(function(a,b){return a+b;},0);
+      return {member:m, byMonth:byMonth, total:rowTotal};
+    });
+    if(format === "csv"){
+      const header = ["Desbravador(a)"].concat(monthKeys).concat(["Total do ano"]);
+      const rows = [header].concat(matrix.map(function(r){ return [r.member].concat(r.byMonth).concat([r.total]); }));
+      const colTotals = monthKeys.map(function(_,i){ return matrix.reduce(function(s,r){ return s+r.byMonth[i]; },0); });
+      rows.push(["Total da unidade"].concat(colTotals).concat([colTotals.reduce(function(a,b){return a+b;},0)]));
+      downloadCsv("Chamada anual - "+unidade+" - "+year, rows);
+      return;
+    }
+    const logoEl = document.querySelector(".brand-badge img");
+    const logoSrc = logoEl ? logoEl.getAttribute("src") : "";
+    const style = '<style>'
+      + 'body{font-family:Arial,sans-serif;padding:28px;color:#22271e}'
+      + '.rhead{display:flex;align-items:center;gap:14px;border-bottom:3px solid #2f4f3a;padding-bottom:12px;margin-bottom:16px}'
+      + '.rhead img{width:56px;height:56px;object-fit:contain}'
+      + '.rhead h1{font-size:18px;margin:0}'
+      + '.rhead .club{font-size:12px;color:#8a5b2e;font-weight:600;margin-top:2px}'
+      + 'table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:8px}'
+      + 'th,td{border:1px solid #b9c0ac;padding:5px 6px;text-align:center}'
+      + 'th{background:#2f4f3a;color:#fff}'
+      + 'td.nm{text-align:left;font-weight:600}'
+      + 'tfoot td{font-weight:700;background:#eef1e8}'
+      + '@media print{table{page-break-inside:auto} tr{page-break-inside:avoid}}'
+      + '</style>';
+    let body = '<div class="rhead">'
+        + (logoSrc ? '<img src="'+logoSrc+'" alt="logo">' : '')
+        + '<div><h1>Relatório anual — Chamada da Unidade '+esc(unidade)+'</h1><div class="club">Clube Guardiões do Vale — '+esc(String(year))+'</div></div>'
+      + '</div>';
+    body += '<table><thead><tr><th style="text-align:left">Desbravador(a)</th>' + monthKeys.map(function(mo){ return '<th>'+esc(mo)+'</th>'; }).join("") + '<th>Total do ano</th></tr></thead><tbody>';
+    matrix.forEach(function(r){
+      body += '<tr><td class="nm">'+esc(r.member)+'</td>' + r.byMonth.map(function(v){ return '<td>'+v+'</td>'; }).join("") + '<td><b>'+r.total+'</b></td></tr>';
+    });
+    const colTotals = monthKeys.map(function(_,i){ return matrix.reduce(function(s,r){ return s+r.byMonth[i]; },0); });
+    body += '</tbody><tfoot><tr><td>Total da unidade</td>' + colTotals.map(function(t){ return '<td>'+t+'</td>'; }).join("") + '<td>'+colTotals.reduce(function(a,b){return a+b;},0)+'</td></tr></tfoot></table>';
+    downloadReport("Relatorio anual - Chamada - "+unidade+" - "+year, body, style);
+  }
   function exportProgressPdf(member, p){
     const rows = p.groups.map(function(g){
       return '<tr><td>'+esc(g.label)+'</td><td>'+g.done+'/'+g.total+'</td><td>'+g.pct+'%</td></tr>';
@@ -2436,6 +2557,14 @@ button{font-family:inherit}
       html += '<h3>Área do Responsável</h3>';
       html += '<div class="staff-session"><span>Acompanhando <b>'+esc(currentParent.childName)+'</b></span><button class="btn" id="parentLogout">Sair</button></div>';
       html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="parentSeeProgress">Ver progresso completo</button></div>';
+      const approvedAlerts = approvedParentAlertsFor(currentParent.childName);
+      if(approvedAlerts.length){
+        html += '<h4>⚠️ Avisos da Chamada (autorizados pelo Conselheiro)</h4>';
+        html += approvedAlerts.map(function(a){
+          return '<div class="staff-item"><span>'+esc(a.data)+' — '+esc(a.issues.join(", "))+'</span>'
+            + '<span>'+(a.seenAt ? '<span class="idea-hint" style="margin:0">👁️ visto</span>' : '<button class="idea-mini-btn" data-mark-alert-seen="'+esc(a.chId)+'">👁️ Marcar como visto</button>')+'</span></div>';
+        }).join("");
+      }
       html += '<h4>Aprovações recentes</h4>';
       html += childApprovals.length ? childApprovals.map(function(e){
         const when = e.at ? new Date(e.at).toLocaleDateString("pt-BR") : "";
@@ -2460,6 +2589,13 @@ button{font-family:inherit}
         btn.addEventListener("click", function(){
           const id = btn.getAttribute("data-mark-seen");
           if(id) toggleLogSeen(id, true);
+          render();
+        });
+      });
+      modalRoot.querySelectorAll("[data-mark-alert-seen]").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          const chId = btn.getAttribute("data-mark-alert-seen");
+          markParentAlertSeen(chId, currentParent.childName);
           render();
         });
       });
@@ -2628,14 +2764,44 @@ button{font-family:inherit}
     });
     document.getElementById("saveMemberInfoBtn").addEventListener("click", function(){
       const batismoVal = document.getElementById("editMemberBatismo").value;
-      memberInfo[name] = {avatar:avatarData||null, birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, genero:document.getElementById("editMemberGenero").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, responsavelAssoc:document.getElementById("editMemberRespAssoc").value.trim()||null, conselheiro:document.getElementById("editMemberConselheiro").value.trim()||null, conselheiroAssoc:document.getElementById("editMemberConselheiroAssoc").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
+      const before = memberInfo[name] || {};
+      const after = {avatar:avatarData||null, birth:getBirthDateFromSelects("editMemberBirth")||null, unidade:document.getElementById("editMemberUnidade").value||null, cargoUnidade:document.getElementById("editMemberCargo").value||null, genero:document.getElementById("editMemberGenero").value||null, classe:document.getElementById("editMemberClasse").value||null, concluidas:getSelectedClasses("editMemberConcl", Object.keys(CLASS_MIN_AGE)), responsavel:document.getElementById("editMemberResp").value.trim()||null, responsavelAssoc:document.getElementById("editMemberRespAssoc").value.trim()||null, conselheiro:document.getElementById("editMemberConselheiro").value.trim()||null, conselheiroAssoc:document.getElementById("editMemberConselheiroAssoc").value.trim()||null, batismo:(batismoVal==="sim"?true:(batismoVal==="nao"?false:null))};
+      logMemberChanges(name, before, after);
+      memberInfo[name] = after;
       persistMemberInfo();
       openStaffPanel();
     });
   }
 
+  function openStaffPanelSecretarioUnidade(){
+    const unidade = currentStaff.unidade;
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>Área do(a) Secretário(a) de Unidade</h3>';
+    html += '<div class="staff-session"><span>Logado como <b>'+esc(currentStaff.name||currentStaff.username)+'</b> · Secretário(a) — '+(unidade?esc(unidade):"sem unidade definida")+'</span><button class="btn" id="staffLogout">Sair</button></div>';
+    if(!unidade){
+      html += '<p class="pending-empty">Sua conta ainda não tem uma unidade vinculada. Peça à diretoria para preencher esse campo no seu cadastro de acesso.</p>';
+    } else {
+      html += '<p class="idea-hint">Acesso restrito à Chamada da sua unidade.</p>';
+      html += '<div class="actions-row" style="justify-content:flex-start"><button class="btn primary" id="secOpenChamadaBtn">📣 Chamada — '+esc(unidade)+'</button></div>';
+    }
+    html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    document.getElementById("staffLogout").addEventListener("click", function(){ logoutStaff(); closeModal(); render(); });
+    const secBtn = document.getElementById("secOpenChamadaBtn");
+    if(secBtn) secBtn.addEventListener("click", function(){
+      closeModal();
+      openChamada();
+      setTimeout(function(){
+        const sel = document.getElementById("chUnidade");
+        if(sel){ sel.value = unidade; sel.dispatchEvent(new Event("change")); }
+      }, 30);
+    });
+  }
   function openStaffPanel(){
     if(!currentStaff){ openStaffLogin(); return; }
+    if(currentStaff.role === "secretario_unidade"){ openStaffPanelSecretarioUnidade(); return; }
     const pendings = collectPendings();
     let html = '<button class="close-x">✕</button>';
     html += '<h3>Área da Diretoria</h3>';
@@ -2649,6 +2815,7 @@ button{font-family:inherit}
       + '<button class="btn" id="openChamadaBtn">📣 Chamada da Unidade</button>'
       + '<button class="btn" id="openUnitRankingBtn">🏆 Ranking das Unidades</button>'
       + '<button class="btn" id="openConselheiroBtn">🧑‍🏫 Meus Desbravadores (Conselheiro)</button>'
+      + (currentStaff.role === "diretor" ? '<button class="btn" id="setGoalBtn">🎯 Definir meta do mês</button>' : '')
       + '<button class="btn" id="exportBackupBtn">💾 Backup completo (JSON)</button>'
       + (currentStaff.role === "diretor" ? '<button class="btn" id="restoreBackupBtn">📤 Restaurar backup</button><input type="file" accept="application/json" id="restoreBackupInput" hidden>' : '')
       + '</div>';
@@ -2906,6 +3073,8 @@ button{font-family:inherit}
     document.getElementById("openChamadaBtn").addEventListener("click", function(){ closeModal(); openChamada(); });
     document.getElementById("openUnitRankingBtn").addEventListener("click", function(){ closeModal(); openUnitRanking(); });
     document.getElementById("openConselheiroBtn").addEventListener("click", function(){ closeModal(); openConselheiroPanel(); });
+    const setGoalBtnEl = document.getElementById("setGoalBtn");
+    if(setGoalBtnEl) setGoalBtnEl.addEventListener("click", function(){ closeModal(); openSetGoalModal(); });
     document.getElementById("exportBackupBtn").addEventListener("click", exportFullBackup);
     const restoreBtn = document.getElementById("restoreBackupBtn");
     if(restoreBtn){
@@ -2933,12 +3102,16 @@ button{font-family:inherit}
       if(data.usedIdeas) usedIdeas = data.usedIdeas;
       if(data.chamadas) chamadas = data.chamadas;
       if(data.chamadaMensal) chamadaMensal = data.chamadaMensal;
+      if(data.clubGoal !== undefined) clubGoal = data.clubGoal;
+      if(Array.isArray(data.memberChangeLog)) memberChangeLog = data.memberChangeLog;
       persistMembros(); persistMemberInfo(); persistStaff(); persistParents(); persistClubIdeas(); persistUsedIdeas();
       if(db){
         Object.keys(state).forEach(function(k){ db.collection("trilha_status").doc(k).set(state[k]).catch(function(){}); });
         logEntries.forEach(function(e){ if(e.id) db.collection("trilha_log").doc(e.id).set(e).catch(function(){}); });
         Object.keys(chamadas).forEach(function(id){ db.collection("trilha_chamadas").doc(id).set(chamadas[id]).catch(function(){}); });
         Object.keys(chamadaMensal).forEach(function(id){ db.collection("trilha_chamada_mensal").doc(id).set(chamadaMensal[id]).catch(function(){}); });
+        if(clubGoal) db.collection("trilha_goal").doc("current").set(clubGoal).catch(function(){});
+        memberChangeLog.forEach(function(e){ if(e.id) db.collection("trilha_member_changes").doc(e.id).set(e).catch(function(){}); });
       }
       renderMemberSelect();
       render();
@@ -3017,7 +3190,9 @@ button{font-family:inherit}
         clubIdeas: clubIdeas,
         usedIdeas: usedIdeas,
         chamadas: chamadas,
-        chamadaMensal: chamadaMensal
+        chamadaMensal: chamadaMensal,
+        clubGoal: clubGoal,
+        memberChangeLog: memberChangeLog
       };
       const json = JSON.stringify(backup, null, 2);
       const blob = new Blob([json], {type:"application/json"});
@@ -3175,7 +3350,11 @@ button{font-family:inherit}
             block += '<div class="idea-hint" style="margin:2px 0 6px 4px">'+bits.join(" · ")+'</div>';
             block += memberEvolutionChartHtml(r.name);
             if(r.classe && r.total > r.done){
-              block += '<div style="margin:0 0 12px 4px"><button class="linklike" data-cp-sheet="'+esc(r.name)+'">🖨️ Ficha do que falta ('+(r.total-r.done)+' itens)</button></div>';
+              block += '<div style="margin:0 0 4px 4px"><button class="linklike" data-cp-sheet="'+esc(r.name)+'">🖨️ Ficha do que falta ('+(r.total-r.done)+' itens)</button></div>';
+            }
+            const changeHist = memberChangeHistoryFor(r.name);
+            if(changeHist.length){
+              block += '<div style="margin:0 0 12px 4px"><button class="linklike" data-cp-changes="'+esc(r.name)+'">📜 Histórico de mudanças no cadastro ('+changeHist.length+')</button></div>';
             }
           }
           return block;
@@ -3200,8 +3379,28 @@ button{font-family:inherit}
           generateMissingSheetForMember(el.getAttribute("data-cp-sheet"));
         });
       });
+      modalRoot.querySelectorAll("[data-cp-changes]").forEach(function(el){
+        el.addEventListener("click", function(e){
+          e.stopPropagation();
+          openMemberChangeHistoryModal(el.getAttribute("data-cp-changes"));
+        });
+      });
     }
     render();
+  }
+  function openMemberChangeHistoryModal(member){
+    const hist = memberChangeHistoryFor(member);
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>📜 Histórico de mudanças — '+esc(member)+'</h3>';
+    html += hist.length ? hist.map(function(e){
+      const when = e.at ? new Date(e.at).toLocaleString("pt-BR") : "";
+      const label = MEMBER_CHANGE_FIELD_LABELS[e.field] || e.field;
+      return '<div class="log-row"><div class="lwhat"><b>'+esc(label)+'</b>: '+esc(e.from||"—")+' → '+esc(e.to||"—")+'</div><div class="lmeta">por '+esc(e.by||"—")+' · '+when+'</div></div>';
+    }).join("") : '<div class="pending-empty">Nenhuma mudança registrada ainda.</div>';
+    html += '<div class="actions-row"><button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
   }
   function openConselheiroPanel(){
     const meNames = currentStaff ? [currentStaff.name, currentStaff.username].filter(Boolean) : [];
@@ -3212,6 +3411,15 @@ button{font-family:inherit}
     let html = '<button class="close-x">✕</button>';
     html += '<h3>🧑‍🏫 Meus Desbravadores (Conselheiro)</h3>';
     html += '<p class="idea-hint" style="margin-top:-4px">Desbravadores em que você está cadastrado(a) como Conselheiro(a) ou Conselheiro(a) Associado(a).</p>';
+    const pendingAlerts = pendingParentAlerts();
+    if(pendingAlerts.length){
+      html += '<h4>⚠️ Avisos aguardando sua autorização ('+pendingAlerts.length+')</h4>';
+      html += '<p class="idea-hint" style="margin-top:-4px">Esses avisos só chegam à família depois que você aprovar.</p>';
+      html += pendingAlerts.map(function(a){
+        return '<div class="staff-item"><span>'+esc(a.member)+' — '+esc(a.unidade)+' · '+esc(a.data)+'<br><small style="color:var(--muted)">'+esc(a.issues.join(", "))+'</small></span>'
+          + '<span><button class="idea-mini-btn" data-alert-approve="'+esc(a.chId)+'|'+esc(a.member)+'">✅ Aprovar</button> <button class="idea-mini-btn" data-alert-reject="'+esc(a.chId)+'|'+esc(a.member)+'">🚫 Rejeitar</button></span></div>';
+      }).join("");
+    }
     if(!mine.length){
       html += '<p class="pending-empty">Nenhum desbravador vinculado a você como conselheiro(a) ainda. Peça à diretoria para preencher esse campo no cadastro do desbravador.</p>';
     } else {
@@ -3236,6 +3444,20 @@ button{font-family:inherit}
     showModal(html);
     document.getElementById("mCancel").addEventListener("click", closeModal);
     modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    modalRoot.querySelectorAll("[data-alert-approve]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        const parts = btn.getAttribute("data-alert-approve").split("|");
+        respondParentAlert(parts[0], parts[1], true);
+        openConselheiroPanel();
+      });
+    });
+    modalRoot.querySelectorAll("[data-alert-reject]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        const parts = btn.getAttribute("data-alert-reject").split("|");
+        respondParentAlert(parts[0], parts[1], false);
+        openConselheiroPanel();
+      });
+    });
   }
   function generateMissingSheetForMember(member){
     const info = memberInfo[member] || {};
@@ -3286,6 +3508,56 @@ button{font-family:inherit}
     return '<div style="margin:4px 0 6px 4px"><div class="idea-hint" style="margin-bottom:2px">Evolução na Chamada (últimas '+series.length+' reuniões)</div>'
       + '<div style="display:flex;align-items:flex-end;gap:4px;height:40px">'+bars+'</div></div>';
   }
+  function memberChamadaIssues(resp){
+    const issues = [];
+    if(!resp) return issues;
+    if(resp.disciplina === "c") issues.push("disciplina regular");
+    if(resp.classeEsp === "c") issues.push("cartão de classes atrasado");
+    if(resp.biblico === "c") issues.push("ano bíblico atrasado (+5 cap.)");
+    if(resp.biblico === "d") issues.push("não está fazendo o ano bíblico");
+    if(resp.cultos === "c") issues.push("ausente nos cultos");
+    return issues;
+  }
+  function pendingParentAlerts(){
+    // alertas de pontuação baixa aguardando aprovação do(a) conselheiro(a) responsável antes de irem para a família
+    const meNames = currentStaff ? [currentStaff.name, currentStaff.username].filter(Boolean) : [];
+    const out = [];
+    Object.keys(chamadas).forEach(function(chId){
+      const rec = chamadas[chId];
+      if(!rec || !rec.parentAlerts) return;
+      Object.keys(rec.parentAlerts).forEach(function(member){
+        const a = rec.parentAlerts[member];
+        if(!a || a.status !== "pending") return;
+        const info = memberInfo[member] || {};
+        if(meNames.indexOf(info.conselheiro) === -1 && meNames.indexOf(info.conselheiroAssoc) === -1) return;
+        out.push({chId:chId, member:member, unidade:rec.unidade, data:rec.data, issues:a.issues});
+      });
+    });
+    return out;
+  }
+  function respondParentAlert(chId, member, approve){
+    const rec = chamadas[chId];
+    if(!rec || !rec.parentAlerts || !rec.parentAlerts[member]) return;
+    rec.parentAlerts[member].status = approve ? "approved" : "rejected";
+    rec.parentAlerts[member].respondedBy = (currentStaff && (currentStaff.name||currentStaff.username)) || "—";
+    rec.parentAlerts[member].respondedAt = Date.now();
+    persistChamada(chId, rec);
+  }
+  function approvedParentAlertsFor(member){
+    const out = [];
+    Object.keys(chamadas).forEach(function(chId){
+      const rec = chamadas[chId];
+      const a = rec && rec.parentAlerts && rec.parentAlerts[member];
+      if(a && a.status === "approved") out.push({chId:chId, data:rec.data, issues:a.issues, seenAt:a.seenByParentAt||null});
+    });
+    return out.sort(function(a,b){ return (a.data||"").localeCompare(b.data||""); });
+  }
+  function markParentAlertSeen(chId, member){
+    const rec = chamadas[chId];
+    if(!rec || !rec.parentAlerts || !rec.parentAlerts[member]) return;
+    rec.parentAlerts[member].seenByParentAt = Date.now();
+    persistChamada(chId, rec);
+  }
   function chamadaHistoryFor(unidade){
     return Object.keys(chamadas).filter(function(id){ return chamadas[id] && chamadas[id].unidade === unidade; })
       .map(function(id){ return chamadas[id]; })
@@ -3323,6 +3595,14 @@ button{font-family:inherit}
         + '<div style="flex:1;min-width:140px"><label>Mês para relatório</label><select id="chReportMonth">' + months.filter(function(mo){ return hist.some(function(r){ return (r.data||"").slice(0,7)===mo; }); }).map(function(mo){ return '<option value="'+mo+'">'+mo+'</option>'; }).join("") + '</select></div>'
         + '<button class="btn primary" id="chReportBtn" type="button">📄 Baixar relatório do mês</button>'
       + '</div>';
+      const years = Array.from(new Set(hist.map(function(rec){ return (rec.data||"").slice(0,4); }))).filter(Boolean).sort().reverse();
+      if(years.length){
+        h += '<div class="field" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+          + '<div style="flex:1;min-width:140px"><label>Ano para relatório completo</label><select id="chReportYear">' + years.map(function(y){ return '<option value="'+y+'">'+y+'</option>'; }).join("") + '</select></div>'
+          + '<button class="btn" id="chReportYearPdfBtn" type="button">📄 Ano inteiro (PDF)</button>'
+          + '<button class="btn" id="chReportYearCsvBtn" type="button">📊 Ano inteiro (Excel)</button>'
+        + '</div>';
+      }
       h += hist.map(function(rec){
         return '<div class="staff-item"><span>'+(rec.foto?'<img src="'+rec.foto+'" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px">':'')+esc(rec.data)+' — total da unidade: <b>'+(rec.unitTotal||0)+' pts</b></span>'
           + '<span><button class="idea-mini-btn" data-ch-open="'+esc(rec.unidade)+'|'+esc(rec.data)+'">✏️ Abrir</button></span></div>';
@@ -3339,6 +3619,14 @@ button{font-family:inherit}
       if(reportBtn) reportBtn.addEventListener("click", function(){
         const mo = document.getElementById("chReportMonth").value;
         generateMonthlyChamadaReport(unidade, mo);
+      });
+      const yearPdfBtn = document.getElementById("chReportYearPdfBtn");
+      if(yearPdfBtn) yearPdfBtn.addEventListener("click", function(){
+        generateYearChamadaReport(unidade, document.getElementById("chReportYear").value, "pdf");
+      });
+      const yearCsvBtn = document.getElementById("chReportYearCsvBtn");
+      if(yearCsvBtn) yearCsvBtn.addEventListener("click", function(){
+        generateYearChamadaReport(unidade, document.getElementById("chReportYear").value, "csv");
       });
       wireMensalBtn();
       function wireMensalBtn(){
@@ -3556,10 +3844,16 @@ button{font-family:inherit}
           card += '<div class="chamada-card-body" data-ch-member="'+esc(m)+'" style="padding:10px 12px;display:flex;flex-direction:column;gap:12px">';
           card += CHAMADA_CRITERIA.map(function(c){
             const syncHint = c.sync ? '<div class="idea-hint" style="margin:2px 0 4px">'+esc(classeEspSnapshot(m))+' <i>(sincronizado automaticamente com a Trilha — use como referência para escolher a opção)</i></div>' : '';
-            const noteField = c.sync ? '<input type="text" data-ch-field="classeEspNota" data-ch-member="'+esc(m)+'" value="'+esc(saved.classeEspNota||"")+'" placeholder="Observação opcional (ex.: especialidade em andamento)">' : '';
+            const noteField = c.sync ? '<input type="text" data-ch-field="classeEspNota" data-ch-member="'+esc(m)+'" value="'+esc(saved.classeEspNota||"")+'" placeholder="Observação opcional (ex.: especialidade em andamento)" style="margin-top:6px">' : '';
+            const btnGroup = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">' + c.opts.map(function(o){
+              const active = saved[c.key] === o[0];
+              return '<button type="button" class="ch-opt-btn'+(active?' active':'')+'" data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'" data-ch-value="'+o[0]+'" style="flex:1;min-width:110px;padding:10px 8px;border-radius:8px;border:2px solid '+(active?'var(--rope)':'var(--line)')+';background:'+(active?'var(--rope)':'var(--surface)')+';color:'+(active?'#fff':'inherit')+';font-weight:700;cursor:pointer;text-align:center;line-height:1.3">'
+                + o[0].toUpperCase()+') '+esc(o[1]) + '<br><span style="font-weight:400;font-size:12px">'+o[2]+' pts</span>'
+              + '</button>';
+            }).join("") + '</div>';
             return '<div class="field" style="margin:0"><label>'+esc(c.label)+'</label>'
               + syncHint
-              + '<select data-ch-field="'+c.key+'" data-ch-member="'+esc(m)+'"><option value="">— selecione —</option>' + c.opts.map(function(o){ return '<option value="'+o[0]+'"'+(saved[c.key]===o[0]?" selected":"")+'>'+o[0]+') '+esc(o[1])+' — '+o[2]+' pts</option>'; }).join("") + '</select>'
+              + btnGroup
               + noteField
             + '</div>';
           }).join("");
@@ -3596,19 +3890,22 @@ button{font-family:inherit}
           render();
         });
       });
-      modalRoot.querySelectorAll("[data-ch-field]").forEach(function(el){
+      modalRoot.querySelectorAll("input[data-ch-field]").forEach(function(el){
         el.addEventListener("input", function(){
           const m = el.getAttribute("data-ch-member");
           const key = el.getAttribute("data-ch-field");
           membrosDraft[m] = membrosDraft[m] || {};
           membrosDraft[m][key] = el.value;
-          const total = chamadaRowTotal(membrosDraft[m]);
-          const totEl = modalRoot.querySelector('[data-ch-total="'+CSS.escape(m)+'"]');
-          if(totEl) totEl.textContent = total+' pts';
-          let sum = 0;
-          members.forEach(function(mm){ sum += chamadaRowTotal(membrosDraft[mm]||{}); });
-          const unitEl = document.getElementById("chUnitTotal");
-          if(unitEl) unitEl.textContent = sum;
+        });
+      });
+      modalRoot.querySelectorAll("button.ch-opt-btn[data-ch-field]").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          const m = btn.getAttribute("data-ch-member");
+          const key = btn.getAttribute("data-ch-field");
+          const val = btn.getAttribute("data-ch-value");
+          membrosDraft[m] = membrosDraft[m] || {};
+          membrosDraft[m][key] = val;
+          render();
         });
       });
       document.getElementById("chSaveBtn").addEventListener("click", function(){
@@ -3616,14 +3913,26 @@ button{font-family:inherit}
         let unitTotalNow = 0;
         members.forEach(function(m){
           const resp = Object.assign({}, membrosDraft[m] || {});
-          resp.classeEsp = classeEspSnapshot(m);
+          resp.classeEspSnapshot = classeEspSnapshot(m);
           resp.total = chamadaRowTotal(resp);
           unitTotalNow += resp.total;
           membrosData[m] = resp;
         });
         const secretario = document.getElementById("chSecretario").value.trim();
         const observacoes = document.getElementById("chObservacoes").value.trim();
-        const rec = {unidade:unidade, data:data, membros:membrosData, unitTotal:unitTotalNow, foto:fotoData||null, secretario:secretario||null, observacoes:observacoes||null, savedAt:Date.now(), savedBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—"};
+        const prevAlerts = (existing && existing.parentAlerts) || {};
+        const parentAlerts = {};
+        members.forEach(function(m){
+          const issues = memberChamadaIssues(membrosData[m]);
+          if(!issues.length) return;
+          const prev = prevAlerts[m];
+          if(prev && JSON.stringify(prev.issues) === JSON.stringify(issues)){
+            parentAlerts[m] = prev; // mantém status já respondido pelo conselheiro se os problemas não mudaram
+          } else {
+            parentAlerts[m] = {issues:issues, status:"pending", createdAt:Date.now()};
+          }
+        });
+        const rec = {unidade:unidade, data:data, membros:membrosData, unitTotal:unitTotalNow, foto:fotoData||null, secretario:secretario||null, observacoes:observacoes||null, parentAlerts:parentAlerts, savedAt:Date.now(), savedBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—"};
         persistChamada(id, rec);
         showModal('<button class="close-x">✕</button><h3>Chamada salva!</h3><p>Chamada de <b>'+esc(unidade)+'</b> em '+esc(data)+' salva com total de <b>'+unitTotalNow+' pts</b>.</p><div class="actions-row"><button class="btn primary" id="mCancel">Fechar</button></div>');
         document.getElementById("mCancel").addEventListener("click", closeModal);
@@ -3631,6 +3940,50 @@ button{font-family:inherit}
       });
     }
     render();
+  }
+
+  function openSetGoalModal(){
+    const g = clubGoal || {};
+    let html = '<button class="close-x">✕</button>';
+    html += '<h3>🎯 Meta do mês do clube</h3>';
+    html += '<p class="idea-hint" style="margin-top:-4px">Aparece no Dashboard como um indicador de progresso, calculado com base na pontuação média das Chamadas registradas.</p>';
+    html += '<div class="field"><label>Descrição da meta</label><input type="text" id="goalText" value="'+esc(g.text||"")+'" placeholder="Ex.: Todas as unidades com média acima de 80% na Chamada"></div>';
+    html += '<div class="field"><label>Meta em % da pontuação máxima da Chamada</label><input type="number" id="goalPct" min="0" max="100" value="'+(g.targetPct!=null?g.targetPct:80)+'"></div>';
+    html += '<div class="actions-row"><button class="btn primary" id="goalSaveBtn">💾 Salvar meta</button>'+(g.text?'<button class="btn" id="goalClearBtn">🗑️ Remover meta</button>':'')+'<button class="btn" id="mCancel">Fechar</button></div>';
+    showModal(html);
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    modalRoot.querySelector(".close-x").addEventListener("click", closeModal);
+    document.getElementById("goalSaveBtn").addEventListener("click", function(){
+      const text = document.getElementById("goalText").value.trim();
+      const targetPct = parseInt(document.getElementById("goalPct").value, 10);
+      if(!text){ alert("Escreva a descrição da meta."); return; }
+      clubGoal = {text:text, targetPct: isNaN(targetPct)?80:targetPct, month: todayIso().slice(0,7), setBy:(currentStaff&&(currentStaff.name||currentStaff.username))||"—", setAt: Date.now()};
+      persistClubGoal();
+      closeModal();
+    });
+    const clearBtn = document.getElementById("goalClearBtn");
+    if(clearBtn) clearBtn.addEventListener("click", function(){
+      clubGoal = null;
+      persistClubGoal();
+      closeModal();
+    });
+  }
+  function upcomingBirthdays(daysAhead){
+    const out = [];
+    const today = new Date(); today.setHours(0,0,0,0);
+    function check(name, b, tipo){
+      if(!b) return;
+      const parts = b.split("-");
+      if(parts.length !== 3) return;
+      const bm = parseInt(parts[1],10) - 1, bd = parseInt(parts[2],10);
+      let next = new Date(today.getFullYear(), bm, bd);
+      if(next < today) next = new Date(today.getFullYear()+1, bm, bd);
+      const diffDays = Math.round((next - today) / 86400000);
+      if(diffDays <= daysAhead) out.push({name:name, tipo:tipo, diffDays:diffDays});
+    }
+    membros.forEach(function(m){ check(m, (memberInfo[m]||{}).birth, "Desbravador(a)"); });
+    staffAccounts.forEach(function(a){ check(a.name||a.username, a.birth, "Diretoria"); });
+    return out.sort(function(a,b){ return a.diffDays - b.diffDays; });
   }
 
   // ---- dashboard da diretoria (agregado de todos os membros) ----
@@ -3703,6 +4056,24 @@ button{font-family:inherit}
 
     let html = '<button class="close-x">✕</button>';
     html += '<h3>Dashboard da Diretoria</h3>';
+    const bdays7 = upcomingBirthdays(7);
+    if(bdays7.length){
+      html += '<div class="note-text" style="margin-bottom:14px"><b>🎂 Aniversário(s) nos próximos 7 dias</b>'
+        + '<ul class="idea-list">' + bdays7.map(function(b){ return '<li><span class="idea-text">'+esc(b.name)+' <small style="color:var(--muted)">('+esc(b.tipo)+')</small> — '+(b.diffDays===0?'hoje!':(b.diffDays===1?'amanhã':'em '+b.diffDays+' dias'))+'</span></li>'; }).join("") + '</ul>'
+      + '</div>';
+    }
+    if(clubGoal && clubGoal.text){
+      const gp = clubGoalProgressPct();
+      html += '<h4>🎯 Meta do mês: '+esc(clubGoal.text)+'</h4>';
+      if(gp === null){
+        html += '<p class="idea-hint">Ainda não há Chamadas registradas neste período para calcular o progresso.</p>';
+      } else {
+        const reached = gp >= clubGoal.targetPct;
+        html += '<div class="progress-row"><div class="plabel"><span>Progresso atual</span><b>'+gp+'% (meta: '+clubGoal.targetPct+'%)</b></div>'
+          + '<div class="ptrack"><div class="pfill" style="width:'+Math.min(100,gp)+'%;background:'+(reached?"var(--status-done)":"var(--rope)")+'"></div></div></div>';
+        html += '<p class="idea-hint">'+(reached?'🎉 Meta alcançada!':'Faltam '+(clubGoal.targetPct-gp)+' pontos percentuais para alcançar a meta.')+'</p>';
+      }
+    }
     html += '<div class="progress-total">'
       + '<div><b>'+membros.length+'</b><small>Membros cadastrados</small></div>'
       + '<div><b>'+memberStats.reduce(function(s,m){return s+m.done;},0)+'</b><small>Aprovações totais</small></div>'
